@@ -6,9 +6,11 @@ import { useState, useEffect } from 'react'
 // to change the welcome image.
 import welcomeBgUrl from '../../../../graphic_files/welcome-bg.png'
 import magnoliaUrl from '../../assets/magnoliaqda-welcome.svg'
+import { CloudConnectDialog } from './CloudConnectDialog'
 
 export function WelcomeScreen() {
   const [recentProjects, setRecentProjects] = useState<{ name: string; path: string }[]>([])
+  const [cloudConnectOpen, setCloudConnectOpen] = useState(false)
 
   useEffect(() => {
     const refresh = () => {
@@ -153,7 +155,7 @@ export function WelcomeScreen() {
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
           <button
             className="secondary"
             onClick={() => window.api.sendWelcomeAction('quit')}
@@ -173,6 +175,13 @@ export function WelcomeScreen() {
             style={{ flex: 1, padding: '7px 12px', fontSize: 12, fontWeight: 600 }}
           >
             New
+          </button>
+          <button
+            className="secondary"
+            onClick={() => setCloudConnectOpen(true)}
+            style={{ flex: 1, padding: '7px 8px', fontSize: 12, fontWeight: 600 }}
+          >
+            Sign in / Sync…
           </button>
         </div>
 
@@ -208,6 +217,8 @@ export function WelcomeScreen() {
         </div>
       </div>
       <div />
+
+      {cloudConnectOpen && <CloudConnectDialog onClose={() => setCloudConnectOpen(false)} />}
 
       {/* App version — bottom-right corner, over the welcome artwork.
           White with a soft shadow so it stays legible on any image. */}

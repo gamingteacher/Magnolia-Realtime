@@ -3,6 +3,7 @@ import type { SyncConflict } from './engine'
 import type { PresenceEntry } from './session'
 
 export type SyncStatus = 'off' | 'connecting' | 'synced' | 'syncing' | 'offline' | 'error'
+export interface SyncAccount { userId: string; username: string; displayName: string }
 
 interface SyncState {
   status: SyncStatus
@@ -14,6 +15,7 @@ interface SyncState {
   conflicts: SyncConflict[]
   paused: boolean
   presence: PresenceEntry[]
+  account: SyncAccount | null
   set: (patch: Partial<Omit<SyncState, 'set'>>) => void
 }
 
@@ -27,6 +29,7 @@ export const useSyncStore = create<SyncState>((set) => ({
   conflicts: [],
   paused: false,
   presence: [],
+  account: null,
   set: (patch) => set(patch)
 }))
 

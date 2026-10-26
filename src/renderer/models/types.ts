@@ -508,6 +508,10 @@ export interface ElectronAPI {
   syncLoadState: (key: string) => Promise<any | null>
   syncSaveState: (key: string, state: unknown) => Promise<boolean>
   syncDeleteState: (key: string) => Promise<boolean>
+  syncSaveSession: (session: string) => Promise<boolean>
+  syncLoadSession: () => Promise<string | null>
+  syncClearSession: () => Promise<void>
+  syncTakePendingConnect: () => Promise<string | null>
   syncUploadBinary: (token: string, projectId: string, handle: string, ext: string) =>
     Promise<{ ok: boolean; error?: string; sha256?: string; size?: number }>
   syncDownloadBinary: (token: string, projectId: string, sha256: string, ext: string) =>

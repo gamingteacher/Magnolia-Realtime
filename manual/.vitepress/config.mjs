@@ -115,6 +115,7 @@ export default defineConfig({
         items: [
           page('Introduction', '/guide/introduction'), // DONE
           page('Installation', '/guide/installation'), // DONE
+          page('Cloud Sync', '/guide/sync'),
 //          page('Interface', '/guide/interface'),
 //          page('Preferences', '/guide/preferences'),
 //          page('Logbook', '/guide/logbook'),

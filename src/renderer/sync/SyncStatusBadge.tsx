@@ -20,6 +20,7 @@ export function SyncStatusBadge(): JSX.Element | null {
       <div style={{ cursor: 'pointer' }} onClick={() => setOpen(!open)}>
         ☁ {label[s.status]}{s.pending ? ` · ${s.pending} pending` : ''}{s.presence.length > 1 ? ` · ${s.presence.length} online` : ''}
         {s.conflicts.length ? ` · ${s.conflicts.length} conflict(s)` : ''}{s.role === 'viewer' ? ' · read-only' : ''}
+        {s.account ? ` · @${s.account.username}` : ''}
       </div>
       {open && (
         <div style={{ marginTop: 6 }}>

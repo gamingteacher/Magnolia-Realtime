@@ -5,9 +5,21 @@ import './styles/global.css'
 import { applyStoredAppearance, installAppearanceListeners } from './utils/apply-theme'
 // Initialize undo system (subscriptions activate on import)
 import './stores/undo-store'
-import { initSyncAutoconnect } from './sync/session'
+import { initSyncAutoconnect, startSync } from './sync/session'
+import { useSyncStore } from './sync/sync-store'
 
 initSyncAutoconnect()
+void window.api.syncTakePendingConnect().then(async (projectId) => {
+  if (!projectId) return
+  try { await startSync(projectId) }
+  catch (e) {
+    useSyncStore.getState().set({
+      status: 'error',
+      projectId,
+      error: e instanceof Error ? e.message : String(e)
+    })
+  }
+})
 
 // Prevent Electron from opening dropped files in the browser window.
 // Individual components (e.g. DocumentBrowser) selectively handle drops.

@@ -11,6 +11,11 @@ interface SyncConfig {
 }
 
 const file = (): string => join(app.getPath('userData'), 'magnolia-sync.enc')
+const sessionFile = (): string => join(app.getPath('userData'), 'magnolia-sync-session.enc')
+
+async function clearSession(): Promise<void> {
+  if (existsSync(sessionFile())) await unlink(sessionFile())
+}
 
 export function validateConfig(url: string, anonKey: string): string | null {
   let u: URL
@@ -78,6 +83,18 @@ export function registerSyncCredentialHandlers(): void {
     if (existsSync(stateFile(key))) await unlink(stateFile(key))
     return true
   })
+  ipcMain.handle('sync:saveSession', async (_e, session: string) => {
+    if (!safeStorage.isEncryptionAvailable()) throw new Error('OS secure storage is not available')
+    if (typeof session !== 'string' || session.length > 100_000) throw new Error('Invalid sync session')
+    await writeFile(sessionFile(), safeStorage.encryptString(session))
+    return true
+  })
+  ipcMain.handle('sync:loadSession', async () => {
+    if (!existsSync(sessionFile())) return null
+    if (!safeStorage.isEncryptionAvailable()) throw new Error('OS secure storage is not available')
+    return safeStorage.decryptString(await readFile(sessionFile()))
+  })
+  ipcMain.handle('sync:clearSession', clearSession)
   ipcMain.handle('sync:uploadBinary', async (_e, token: string, projectId: string, handle: string, ext: string) => {
     const buf = await resolveHandle(handle)
     if (!buf) return { ok: false, error: 'Binary not found' }
@@ -112,11 +129,14 @@ export function registerSyncCredentialHandlers(): void {
     }
     const err = validateConfig(url, anonKey)
     if (err) return { ok: false, error: err }
+    const previous = await load()
+    if (previous && (previous.url !== url || previous.anonKey !== anonKey)) await clearSession()
     await writeFile(file(), safeStorage.encryptString(JSON.stringify({ url, anonKey })))
     return { ok: true }
   })
   ipcMain.handle('sync:clearConfig', async () => {
     if (existsSync(file())) await unlink(file())
+    await clearSession()
     return { ok: true }
   })
   ipcMain.handle('sync:testConnection', async () => {

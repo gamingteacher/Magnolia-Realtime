@@ -12,6 +12,10 @@ const api: ElectronAPI = {
   syncLoadState: (key: string) => ipcRenderer.invoke('sync:loadState', key),
   syncSaveState: (key: string, state: unknown) => ipcRenderer.invoke('sync:saveState', key, state),
   syncDeleteState: (key: string) => ipcRenderer.invoke('sync:deleteState', key),
+  syncSaveSession: (session: string) => ipcRenderer.invoke('sync:saveSession', session),
+  syncLoadSession: () => ipcRenderer.invoke('sync:loadSession'),
+  syncClearSession: () => ipcRenderer.invoke('sync:clearSession'),
+  syncTakePendingConnect: () => ipcRenderer.invoke('sync:takePendingConnect'),
   syncUploadBinary: (token: string, projectId: string, handle: string, ext: string) =>
     ipcRenderer.invoke('sync:uploadBinary', token, projectId, handle, ext),
   syncDownloadBinary: (token: string, projectId: string, sha256: string, ext: string) =>

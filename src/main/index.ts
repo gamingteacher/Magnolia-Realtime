@@ -72,6 +72,7 @@ let currentPanelVisibility: Record<string, boolean> | undefined = undefined
  *  startup branch in whenReady() consumes this and bypasses the welcome
  *  screen, going straight to the main window. */
 let pendingProjectPath: string | null = null
+let pendingConnectProjectId: string | null = null
 
 /** True for paths that look like a .qdpx project file we can actually
  *  open. Filters Electron's own argv noise (e.g. dev-mode flags, the
@@ -805,6 +806,12 @@ ipcMain.handle('get-recent-projects', () => {
   return pruneRecentProjects()
 })
 
+ipcMain.handle('sync:takePendingConnect', () => {
+  const projectId = pendingConnectProjectId
+  pendingConnectProjectId = null
+  return projectId
+})
+
 ipcMain.on('welcome-action', async (event, action: string) => {
   if (action === 'quit') {
     if (welcomeWindow && !welcomeWindow.isDestroyed()) {
@@ -819,6 +826,26 @@ ipcMain.on('welcome-action', async (event, action: string) => {
     // The welcome window has no setWindowOpenHandler, so open the GitHub
     // Sponsors page in the user's browser from the main process directly.
     shell.openExternal('https://github.com/sponsors/caledavis')
+    return
+  }
+
+  if (action === 'sync-manual') {
+    shell.openExternal('https://caledavis.github.io/Magnolia/guide/sync')
+    return
+  }
+
+  if (action.startsWith('cloud-open:')) {
+    const projectId = action.slice('cloud-open:'.length)
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(projectId)) {
+      dialog.showErrorBox('Unable to open cloud project', 'The selected project ID is invalid.')
+      return
+    }
+    if (welcomeWindow && !welcomeWindow.isDestroyed()) {
+      welcomeWindow.close()
+      welcomeWindow = null
+    }
+    pendingConnectProjectId = projectId
+    createWindow()
     return
   }
 

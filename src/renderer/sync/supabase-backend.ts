@@ -2,7 +2,17 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import type { SyncBackend, PushOp, PushResult, RemoteRow } from './engine'
 
 export function createSupabaseClient(url: string, anonKey: string): SupabaseClient {
-  return createClient(url, anonKey, { auth: { persistSession: true, autoRefreshToken: true } })
+  return createClient(url, anonKey, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      storage: {
+        getItem: () => window.api.syncLoadSession(),
+        setItem: (_key, value) => window.api.syncSaveSession(value).then(() => undefined),
+        removeItem: () => window.api.syncClearSession()
+      }
+    }
+  })
 }
 
 /** Backend over the schema in schema.sql. */
