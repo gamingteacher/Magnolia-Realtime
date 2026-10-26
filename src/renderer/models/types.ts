@@ -505,6 +505,18 @@ export interface EditorInfo {
 
 // IPC API exposed to renderer
 export interface ElectronAPI {
+  syncLoadState: (key: string) => Promise<any | null>
+  syncSaveState: (key: string, state: unknown) => Promise<boolean>
+  syncDeleteState: (key: string) => Promise<boolean>
+  syncUploadBinary: (token: string, projectId: string, handle: string, ext: string) =>
+    Promise<{ ok: boolean; error?: string; sha256?: string; size?: number }>
+  syncDownloadBinary: (token: string, projectId: string, sha256: string, ext: string) =>
+    Promise<{ ok: boolean; error?: string; handle?: string }>
+  syncGetConfig: () => Promise<{ url: string; hasKey: boolean }>
+  syncGetKeys: () => Promise<{ url: string; anonKey: string } | null>
+  syncSetConfig: (url: string, anonKey: string) => Promise<{ ok: boolean; error?: string }>
+  syncClearConfig: () => Promise<{ ok: boolean }>
+  syncTestConnection: () => Promise<{ ok: boolean; error?: string }>
   getFileSize: (filePath: string) => Promise<number | null>
   readPdfFile: (filePath: string) => Promise<Uint8Array>
   onProjectLoadProgress: (callback: (p: { stage: string; current: number; total: number }) => void) => () => void

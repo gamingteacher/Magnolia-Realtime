@@ -9,6 +9,18 @@ import type { ElectronAPI } from '../renderer/models/types'
 let activeProjectPath: string | null = null
 
 const api: ElectronAPI = {
+  syncLoadState: (key: string) => ipcRenderer.invoke('sync:loadState', key),
+  syncSaveState: (key: string, state: unknown) => ipcRenderer.invoke('sync:saveState', key, state),
+  syncDeleteState: (key: string) => ipcRenderer.invoke('sync:deleteState', key),
+  syncUploadBinary: (token: string, projectId: string, handle: string, ext: string) =>
+    ipcRenderer.invoke('sync:uploadBinary', token, projectId, handle, ext),
+  syncDownloadBinary: (token: string, projectId: string, sha256: string, ext: string) =>
+    ipcRenderer.invoke('sync:downloadBinary', token, projectId, sha256, ext),
+  syncGetConfig: () => ipcRenderer.invoke('sync:getConfig'),
+  syncGetKeys: () => ipcRenderer.invoke('sync:getKeys'),
+  syncSetConfig: (url: string, anonKey: string) => ipcRenderer.invoke('sync:setConfig', url, anonKey),
+  syncClearConfig: () => ipcRenderer.invoke('sync:clearConfig'),
+  syncTestConnection: () => ipcRenderer.invoke('sync:testConnection'),
   getFileSize: (filePath: string) => ipcRenderer.invoke('get-file-size', filePath),
   readPdfFile: (filePath: string) => ipcRenderer.invoke('read-pdf-file', filePath, activeProjectPath),
   setActiveProjectPath: (filePath: string | null) => {

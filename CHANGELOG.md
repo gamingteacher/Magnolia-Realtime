@@ -2,6 +2,11 @@
 
 All notable changes to Magnolia are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Cloud Sync (experimental, opt-in).** Collaborate in real time through your own Supabase/Postgres project (Preferences → Cloud Sync). Credentials are kept in the OS secure store; service-role keys are rejected. Offline-first with a retry queue, per-item conflict handling and text-edit merging. Run the setup SQL (`src/renderer/sync/schema.sql`) once in Supabase.
+
 ## [1.9.0]
 
 ### Added

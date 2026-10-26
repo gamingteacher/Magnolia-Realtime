@@ -100,6 +100,8 @@ interface MergeReviewState {
   reconciling: boolean
 
   openCompare: (filePath: string, opts?: { reconciling?: boolean }) => Promise<void>
+  /** Review an in-memory project (e.g. downloaded from Cloud Sync) against the open one. */
+  openCompareProject: (project: Omit<Project, 'origin'> & { origin?: string }, sourceContents: Record<string, string>, label: string) => void
   toggle: (category: FlatCategory, guid: string) => void
   toggleCoding: (key: string) => void
   /** Marks every given guid as approved for one category — used by the
@@ -162,6 +164,18 @@ export const useMergeReviewStore = create<MergeReviewState>((set, get) => ({
     } catch (err) {
       set({ loading: false, error: err instanceof Error ? err.message : String(err) })
     }
+  },
+
+  openCompareProject: (project, sourceContents, label) => {
+    const full = { origin: 'Cloud Sync', ...project } as Project
+    const diff = diffProjects(
+      { project: collectCurrentProject(), sourceContents: useDocumentStore.getState().sourceContents },
+      { project: full, sourceContents, editedBy: label }
+    )
+    set({
+      comparisonFilePath: null, comparisonEditedBy: label, comparisonProject: full, diff,
+      loading: false, error: null, approved: emptyApproved(), codingsApproved: new Set(), reconciling: false
+    })
   },
 
   toggle: (category, guid) => {

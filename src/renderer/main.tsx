@@ -5,6 +5,9 @@ import './styles/global.css'
 import { applyStoredAppearance, installAppearanceListeners } from './utils/apply-theme'
 // Initialize undo system (subscriptions activate on import)
 import './stores/undo-store'
+import { initSyncAutoconnect } from './sync/session'
+
+initSyncAutoconnect()
 
 // Prevent Electron from opening dropped files in the browser window.
 // Individual components (e.g. DocumentBrowser) selectively handle drops.

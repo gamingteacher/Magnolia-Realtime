@@ -817,7 +817,7 @@ export function MergeReviewWindow({ onClose }: MergeReviewWindowProps): JSX.Elem
         <div>
           <h2 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>Merge Project</h2>
           <p style={{ margin: '2px 0 0', fontSize: 11.5, color: 'var(--text-muted)' }}>
-            Comparing against {comparisonFilePath}
+            Comparing against {comparisonFilePath ?? comparisonEditedBy}
             {comparisonEditedBy ? ` — last edited by ${comparisonEditedBy}` : ''}
           </p>
         </div>

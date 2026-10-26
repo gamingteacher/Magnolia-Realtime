@@ -11,6 +11,7 @@
  */
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Icon, faGear } from '../Icon'
+import { CloudSyncSettings } from './CloudSyncSettings'
 import { COLOURFUL_INTERFACE_ENABLED, colourfulInterfaceFromSaved } from '../../utils/colourful-interface'
 
 interface FootPedalMappings {
@@ -95,7 +96,7 @@ const THEME_OPTIONS: ThemeOption[] = [
   { id: 'high-contrast', label: 'High Contrast', swatch: { bg: '#000000', surface: '#ffffff', accent: '#ffff00' } }
 ]
 
-type CategoryId = 'appearance' | 'general' | 'media-playback' | 'paper-size' | 'updates' | 'support'
+type CategoryId = 'appearance' | 'general' | 'media-playback' | 'paper-size' | 'updates' | 'cloud-sync' | 'support'
 
 interface Category {
   id: CategoryId
@@ -108,6 +109,7 @@ const CATEGORIES: Category[] = [
   { id: 'media-playback', label: 'Media Playback' },
   { id: 'paper-size',     label: 'Paper Size' },
   { id: 'updates',        label: 'Updates' },
+  { id: 'cloud-sync',     label: 'Cloud Sync' },
   { id: 'support',        label: 'Support Magnolia' }
 ]
 
@@ -841,6 +843,7 @@ export function PreferencesWindow({ onClose }: PreferencesWindowProps = {}) {
             <PaperSizeSettings prefs={prefs} save={save} />
           )}
           {selected.id === 'updates' && <UpdatesSettings />}
+          {selected.id === 'cloud-sync' && <CloudSyncSettings />}
           {selected.id === 'support' && <SupportSettings />}
         </div>
       </div>

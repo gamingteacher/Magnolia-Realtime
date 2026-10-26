@@ -36,6 +36,7 @@
   "dependencies": {
     "@electron-toolkit/utils": "^4.0.0",
     "@iarna/rtf-to-html": "^1.1.0",
+    "@supabase/supabase-js": "^2.118.0",
     "@tiptap/extension-color": "^3.22.2",
     "@tiptap/extension-placeholder": "^3.22.1",
     "@tiptap/extension-text-align": "^3.22.2",
@@ -45,6 +46,7 @@
     "@tiptap/react": "^3.22.1",
     "@tiptap/starter-kit": "^3.22.1",
     "@types/diff": "^7.0.2",
+    "dependencies": "^0.0.1",
     "diff": "^9.0.0",
     "electron-updater": "^6.8.3",
     "fast-xml-parser": "^4.5.3",
