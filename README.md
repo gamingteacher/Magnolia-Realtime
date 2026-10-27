@@ -1,153 +1,96 @@
 <p align="center">
-  <img src="magnoliaicon.png" alt="Magnolia" width="160">
+  <img src="magnoliaicon.png" alt="Magnolia Realtime" width="160">
 </p>
 
-# Magnolia: Free and powerful qualitative data analysis software
+# Magnolia Realtime
 
-**Official website:** [www.caledavis.eu/magnolia.html](https://www.caledavis.eu/magnolia.html)
+A fork of [Magnolia](https://github.com/caledavis/Magnolia), the free and open-source qualitative data analysis (QDA) software, that adds **optional real-time collaborative coding** through a database you own (Supabase / Postgres).
 
-**Download the latest version:**
+Magnolia stays local-first. Without sync, it works exactly as before: local files and the open QDPX standard. With sync, a team can code the same project at the same time.
 
-- [macOS — Apple Silicon](https://github.com/caledavis/Magnolia/releases/latest/download/Magnolia-mac-arm64.dmg)
-- [macOS — Intel](https://github.com/caledavis/Magnolia/releases/latest/download/Magnolia-mac-x64.dmg)
-- [Windows — Installer](https://github.com/caledavis/Magnolia/releases/latest/download/Magnolia-win-x64.exe)
-- [Windows — Portable](https://github.com/caledavis/Magnolia/releases/latest/download/Magnolia-win-portable-x64.exe) (no installation or admin rights needed — ideal for managed or work computers)
-- [Linux — AppImage](https://github.com/caledavis/Magnolia/releases/latest/download/Magnolia-linux-x86_64.AppImage) (see [Troubleshooting](#troubleshooting) if it fails to launch)
-- [Linux — .deb](https://github.com/caledavis/Magnolia/releases/latest/download/Magnolia-linux-amd64.deb) (Debian/Ubuntu)
-- [Linux — .rpm](https://github.com/caledavis/Magnolia/releases/latest/download/Magnolia-linux-x86_64.rpm) (Fedora/openSUSE/RHEL)
-
-Magnolia is free and open-source qualitative data analysis software released under the European Union Public Licence (EUPL).
+Released under the European Union Public Licence (EUPL), like the original.
 
 <p align="center">
-  <img src="screenshot-interface.webp" alt="Magnolia" width="49%">
-  <img src="screenshot-codedpdf.webp" alt="A coded PDF in Magnolia" width="49%">
+  <img src="screenshot-interface.webp" alt="Magnolia Realtime" width="49%">
+  <img src="screenshot-codedpdf.webp" alt="A coded PDF" width="49%">
 </p>
 
-It is designed to be powerful, while also intuitive.
+## What this fork adds
 
-Most existing qualitative data analysis software suffers from one of two problems. It is either:
-- prohibitively expensive for many researchers and requires a subscription (costing upwards of 240 EUR per year!); or, 
-- lacking the tools researchers need to analyse the data in the way they want.
+### Magnolia Sync (bring your own database)
 
-Magnolia aims to address both of these problems. The principles of open science are not advanced if the tools people need to research are available only to those who can afford them.
+- **Your database, your data.** Connect to a free-tier Supabase project (or compatible Postgres) that you control. No third-party service, subscription or Magnolia-run cloud is involved.
+- **Real-time collaboration.** Codes, codings, documents, memos, relationships, queries, folders and tags sync between researchers. Realtime is used as a wake-up signal, and changes are pulled by a sequence cursor so nothing is missed.
+- **Optimistic and offline-capable.** Edits apply locally at once and are pushed in the background through an outbox that survives restarts and reconnects.
+- **Conflict-safe.** Every entity has a GUID and a version, and writes are compare-and-swap. Different-field edits merge automatically. Same-field edits, overlapping text edits and delete-versus-edit become conflicts that you resolve with "Keep mine" or "Take theirs". Codings are separate entities, so two people coding the same passage never collide.
+- **Text merge and selection rebasing.** Concurrent text edits are merged, and selections and codes are rebased onto the new text.
+- **Media sync.** Images, audio, video and PDFs are uploaded by content hash (SHA-256) to a private storage bucket and downloaded on demand.
+- **Roles and security.** Owner, editor and viewer roles are enforced with row-level security and membership checks, not by sharing a key. Viewers are read-only. Service-role and secret keys are rejected, and credentials are stored with the operating system's secure storage (Electron `safeStorage`).
+- **Presence and activity.** See who is online and a log of who changed what and when.
+- **Join and merge.** Joining an existing project opens Magnolia's Merge review, so you can reconcile local work with the shared project.
+- **Status badge.** A badge shows connection state, pending changes and conflicts.
 
-Hopefully, Magnolia will allow you to regain some digital sovereignty over your research!
+### Planned: accounts, invites and splash-screen sign-in (Part 2)
+
+- Username and password accounts that do not depend on an invitation, with the author's name shown on every change.
+- Invitations with a role (editor or viewer) and an expiry time, usable by multiple people until they expire or are revoked.
+- A "Sign in / Sync…" button on the splash screen, so you can connect to a shared project without creating a local one first.
+- A full step-by-step database setup guide.
+
+See [docs/sync-part2-plan.md](docs/sync-part2-plan.md).
+
+## Quick start
+
+Requirements: a current Node.js LTS and a Supabase project (the free tier works).
+
+```bash
+git clone https://github.com/gamingteacher/Magnolia-Realtime
+cd Magnolia-Realtime
+npm install
+npm run dev
+```
+
+1. In Supabase, open the SQL editor and run [`src/renderer/sync/schema.sql`](src/renderer/sync/schema.sql). It is idempotent, so it is safe to run again after updates.
+2. In Magnolia, open **Preferences → Cloud Sync** and enter your project URL and publishable (anon) key.
+3. Create or join a project and start syncing. Share the invite code with your team.
+
+More detail is in the manual page [manual/guide/sync.md](manual/guide/sync.md).
+
+### Scripts
+
+| Command | Purpose |
+| --- | --- |
+| `npm run dev` | Run the app in development |
+| `npm run build` | Build main, preload and renderer bundles |
+| `npm test` | Run the unit tests (Vitest) |
+| `node scripts/sync-e2e.mjs` | Live backend check against your Supabase project |
+| `npm run package:linux` / `:mac` / `:win` | Build installers |
+
+The e2e script reads the Supabase URL and publishable key from the environment (`SUPABASE_URL`, `SUPABASE_ANON_KEY`). Use a disposable project, because it creates test data.
+
+## Where the sync code lives
+
+| Path | Role |
+| --- | --- |
+| `src/renderer/sync/schema.sql` | Tables, row-level security and RPCs |
+| `src/renderer/sync/engine.ts` | Outbox, pull, conflict logic |
+| `src/renderer/sync/entity-map.ts` | Maps project data to synced entities |
+| `src/renderer/sync/text-merge.ts`, `rebase.ts` | Text merge and selection rebasing |
+| `src/renderer/sync/store-bridge.ts` | Connects the engine to the zustand stores |
+| `src/renderer/sync/supabase-backend.ts`, `session.ts` | Backend and session orchestration |
+| `src/main/sync-credentials.ts` | Secure credentials, state and media IPC |
+| `src/renderer/components/Preferences/CloudSyncSettings.tsx` | Settings UI |
+
+## Everything else
+
+All other features (query builder, analysis tools, transcription, video and survey coding, native QDPX support and the supported document types) are inherited unchanged from Magnolia. See the original project for their documentation and for official release downloads.
+
+## Known limitations
+
+- The Electron UI for sync has been verified at the backend level and with unit tests. Please report problems you find when running it.
+- Supabase free-tier limits apply (for example 50 MB per file, and projects pause when idle).
+- Sign-in currently uses anonymous Supabase auth until Part 2 lands.
 
 ## Licence
 
-Magnolia is free and released under the European Union Public Licence. This means that everyone is free to use Magnolia, reproduce it, change it, and make their changes available to others (among other things). Importantly, if Magnolia or a derivative of it is distributed, it must also be done under the EUPL licence and the source code must be made freely available.
-
-This ensures that Magnolia remains free for everyone, and disincentivises companies from profiting off it.
-
-## Powerful coding, powerful queries
-
-<p align="center">
-  <img src="screenshot-querybuilder.webp" alt="Magnolia" width="750">
-</p>
-
-Magnolia's intuitive, graphical query builder lets you build powerful queries to explore your data.
-
-You can save your queries for later, and see the results update in real-time—even while coding data.
-
-You can selectively apply queries to specific documents, types of documents, documents in specific folders, and/or documents with specific tags. 
-
-## A rich suite of analysis tools
-
-<p align="center">
-  <img src="screenshot-codecooccurrences.webp" alt="Magnolia" width="750">
-</p>
-
-Magnolia's rich suite of analytical tools allow you to interrogate your data. You can selectively apply these tools to specific documents, types of documents, documents in specific folders, and/or documents with specific tags.  
-
-- **Relationships:** Map anything and everything. Just drag it to the canvas! Everything on your canvas is interactive; just double-click and you will be taken there. You can even export your map as an SVG file.
-
-- **Codes in Documents:** Easily see which codes exist in which documents.
-
-- **Framework Matrix:** Summarise coded information in a Framework Matrix, 
-
-- **Results in Documents:** Want to see how different queries produce different results? Easily see how many results different queries produce for each document in your project. 
-
-- **Code Co-Occurrences:** See which codes overlap with each other. 
-
-- **Code Orders:** Explore the order codes appear in your data. 
-
-- **Code Frequencies:** Easily see how much of each document is covered by particular codes.
-
-- **Word Frequencies:** See which words appear how often. See the data displayed as a chart or a word cloud.
-
-- **Reports:** Combine analysis results, documents, queries, and more into a PDF report.
-
-## Easily transcribe audio and video
-
-Transcribing audio and video makes it much easier to code.
-
-Magnolia lets you transcribe audio and video. Naturally, you can do this with a foot pedal. Simply map keys to your foot pedal's buttons and then tell Magnolia that those keys are used to play, fast-forward, and rewind. Easy! There's no need for separate software.
-
-Magnolia does not include AI transcription.
-
-<p align="center">
-  <img src="screenshot-transcript.webp" alt="Magnolia" width="750">
-</p>
-
-## Intuitive video coding
-
-Qualitative researchers know that videos capture more than just words. The picture is also important! Because of this, Magnolia syncs your video codes to timestamps. 
-
-This means that when you code a transcript, your codes also appear in the video timeline. If you code in the video timeline, your codes also appear in the transcript. The transcript and the video are linked!
-
-## Support for survey data
-
-<p align="center">
-  <img src="screenshot-surveys.webp" alt="Magnolia" width="750">
-</p>
-
-Other QDA software breaks your survey responses into individual documents. Magnolia doesn't!
-
-Magnolia's survey summary page allows you to easily see the results of your survey at a glance. See which percentage of respondents answered each question, or selected which options. Numerical data is presented as box plots (with the number of respondents, the mean, median, and mode). Go deeper into each respondent's answers, or compare how different respondents answered a question. 
-
-You can also export a report with all your survey data.
-
-## Native QDPX support
-
-Magnolia reads and writes the QDPX format as standard. This is the open standard for qualitative data analysis. Other software defaults to proprietary formats. Magnolia does not!
-
-Of course, there are some features in Magnolia which the QDPX format does not support. Magnolia overcomes this problem by including the Magnolia-specific features in a special part of the QDPX file. This means that other software (such as Atlas.ti and MAXQDA) can open Magnolia files without any problem, and will just ignore the Magnolia-specific features. 
-
-## Supported document types
-
-- Text: .txt, .md, .markdown, .pdf, .docx, .rtf, .odt (Magnolia converts .docx, .rtf, and .odt files to .pdf when they are imported)
-- Images: .jpg, .jpeg, .png, .gif, .webp, .tif, .tiff, .heic, .heif 
-- Audio: .wav, .mp3, .ogg, .flac, .m4a, .aac
-- Video: .mp4, .mov, .avi
-- Surveys: .csv, .xlsx
-
-## No AI, no cloud, no subscription
-
-Magnolia does not contain any AI features. There's no AI analysis, and no AI transcription. You are the researcher!
-
-There's no cloud, so you can save your data where you want: locally, or on a network drive (multiple simultaneous users are not yet supported).
-
-There is nothing in Magnolia which requires a subscription. 
-
-## Troubleshooting
-
-### Linux AppImage fails with "error loading libfuse.so.2"
-
-AppImages need **libfuse2** to mount themselves at launch. Several recent
-distros (Fedora 41+, Ubuntu 24.04+, and others) no longer ship it by default,
-so the AppImage fails immediately with:
-
-```
-dlopen(): error loading libfuse.so.2
-AppImages require FUSE to run.
-```
-
-Two ways to fix it:
-
-- **Use the .deb or .rpm package instead** — they install their own
-  dependencies automatically and don't need FUSE. See the download links
-  above.
-- **Or install libfuse2** and keep using the AppImage:
-  - Fedora/RHEL: `sudo dnf install fuse-libs`
-  - Ubuntu/Debian: `sudo apt install libfuse2`
-  - Arch: `sudo pacman -S fuse2`
+European Union Public Licence (EUPL), as in the original. If you distribute this software or a derivative, you must do so under the EUPL and make the source code available.
