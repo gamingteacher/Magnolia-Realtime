@@ -5,7 +5,7 @@ All notable changes to Magnolia are documented here. The format follows [Keep a 
 ## [Unreleased]
 
 ### Added
-- **Cloud Sync (experimental, opt-in).** Collaborate through your own Supabase project with username/password accounts, encrypted local sessions, multi-use expiring/revocable invites, editor/viewer roles, member management and author attribution. Connect from the welcome screen without first opening a local project, or from Preferences. Cloud data stays in your Supabase project; service-role and secret keys are rejected. Offline-first with retry, conflict handling and text-edit merging. Follow the new step-by-step Supabase setup guide and run the idempotent setup SQL.
+- **Cloud Sync (experimental, opt-in).** Collaborate through your own Supabase project with username/password accounts, encrypted local sessions, multi-use expiring/revocable invites, editor/viewer roles, member management and author attribution (members, invites, invite uses, entity and op authors are all foreign-keyed to `profiles`). Connect from the welcome screen without first opening a local project, or from Preferences. Cloud data stays in your Supabase project; service-role and secret keys are rejected. Offline-first with retry, conflict handling and text-edit merging. Follow the new step-by-step Supabase setup guide and run the idempotent setup SQL.
 
 ## [1.9.0]
 

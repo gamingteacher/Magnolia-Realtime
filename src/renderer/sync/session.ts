@@ -230,7 +230,7 @@ export async function startSync(projectId: string): Promise<void> {
   const c = await getClient()
   const account = await currentUser()
   if (!account) throw new Error('Sign in before connecting to a cloud project.')
-  const { data: member, error: memberError } = await c.from('project_members').select('role').eq('project_id', projectId).maybeSingle()
+  const { data: member, error: memberError } = await c.from('project_members').select('role').eq('project_id', projectId).eq('user_id', account.userId).maybeSingle()
   if (memberError) throw new Error(memberError.message)
   if (!member) throw new Error('Your account is not a member of this cloud project.')
   const ps = useProjectStore.getState()

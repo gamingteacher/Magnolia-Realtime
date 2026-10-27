@@ -75,6 +75,41 @@ create table if not exists ops (
 );
 create index if not exists ops_project_seq on ops (project_id, seq);
 
+-- Link everything that references a user to profiles (rows from the old anonymous
+-- schema have no profile and can never sign in again, so they are cleaned up first).
+delete from project_members where user_id not in (select user_id from profiles);
+delete from project_invite_uses where user_id not in (select user_id from profiles);
+update project_invites set created_by = null where created_by is not null and created_by not in (select user_id from profiles);
+update project_invites set used_by = null where used_by is not null and used_by not in (select user_id from profiles);
+update entities set updated_by = null where updated_by is not null and updated_by not in (select user_id from profiles);
+update ops set author = null where author is not null and author not in (select user_id from profiles);
+
+do $$ begin
+  alter table project_members add constraint project_members_user_fkey
+    foreign key (user_id) references profiles(user_id) on delete cascade;
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter table project_invites add constraint project_invites_created_by_profile_fkey
+    foreign key (created_by) references profiles(user_id) on delete set null;
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter table project_invites add constraint project_invites_used_by_profile_fkey
+    foreign key (used_by) references profiles(user_id) on delete set null;
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter table project_invite_uses add constraint project_invite_uses_profile_fkey
+    foreign key (user_id) references profiles(user_id) on delete cascade;
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter table entities add constraint entities_updated_by_profile_fkey
+    foreign key (updated_by) references profiles(user_id) on delete set null;
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter table ops add constraint ops_author_profile_fkey
+    foreign key (author) references profiles(user_id) on delete set null;
+exception when duplicate_object then null; end $$;
+create index if not exists project_members_user on project_members (user_id);
+
 create or replace function is_member(p uuid, roles text[] default array['owner','editor','viewer'])
 returns boolean language sql stable security definer set search_path = public as $$
   select exists (select 1 from project_members
@@ -145,7 +180,9 @@ begin
   end if;
   insert into profiles (user_id, username, display_name)
     values (auth.uid(), normalized_username, trim(p_display_name))
+    on conflict (user_id) do update set display_name = excluded.display_name
     returning * into result;
+  update project_members set display_name = result.display_name where user_id = auth.uid();
   return result;
 exception when unique_violation then
   raise exception 'Username already taken';
