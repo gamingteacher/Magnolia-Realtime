@@ -243,9 +243,12 @@ export async function startSync(projectId: string): Promise<void> {
   })
   const backend = new SupabaseBackend(c, projectId)
   engine = new SyncEngine(backend, { applyRemote: applyRemoteToStores, newId: generateGuid })
-  const saved = await window.api.syncLoadState(engineKey(projectId))
-  if (saved) engine.restore(saved)
   const filePath = useProjectStore.getState().filePath
+  // Saved sync state belongs to one local file; reusing it for another (e.g. a fresh empty
+  // project) would make every cloud item look locally deleted and wipe the cloud project.
+  const link = filePath ? await window.api.syncLoadState(linkKey(filePath)) : null
+  const saved = link?.projectId === projectId && snapshotEntities().length > 0 ? await window.api.syncLoadState(engineKey(projectId)) : null
+  if (saved) engine.restore(saved)
   if (filePath) await window.api.syncSaveState(linkKey(filePath), { projectId })
   const role = member.role
   if (role !== 'owner' && role !== 'editor' && role !== 'viewer') {

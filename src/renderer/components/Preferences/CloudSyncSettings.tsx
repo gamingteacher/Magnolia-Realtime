@@ -23,7 +23,6 @@ export function CloudSyncSettings(): JSX.Element {
   const [hasKey, setHasKey] = useState(false)
   const [savedUrl, setSavedUrl] = useState('')
   const [msg, setMsg] = useState('')
-  const [code, setCode] = useState('')
   const [activity, setActivity] = useState<ActivityEntry[]>([])
 
   useEffect(() => {
@@ -106,15 +105,6 @@ export function CloudSyncSettings(): JSX.Element {
             await navigator.clipboard.writeText(invite)
             return `Cloud project created. Editor invite copied: ${invite}`
           })}>Upload and share this project</button>
-        </div>
-        <div style={row}>
-          <input style={input} placeholder="Invite code" value={code} onChange={(e) => setCode(e.target.value)} />
-          <button disabled={!hasKey || !sync.account || !code.trim()} onClick={() => run(async () => {
-            const result = await joinAndConnect(code.trim())
-            return result === 'review'
-              ? 'Joined. Review the cloud changes in the Merge tab; syncing starts when you finish.'
-              : 'Joined and synced'
-          })}>Join</button>
         </div>
         {sync.account && <ProjectPicker onOpen={async (id) => {
           const result = await connectExistingAndConnect(id)
