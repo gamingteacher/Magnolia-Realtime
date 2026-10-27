@@ -136,7 +136,7 @@ const SPONSOR_URL = 'https://github.com/sponsors/caledavis'
 
 /** Latest release page — where users on builds that can't self-update (e.g.
  *  the portable Windows exe) download the newest version. */
-const RELEASES_URL = 'https://github.com/caledavis/Magnolia/releases/latest'
+const RELEASES_URL = 'https://github.com/gamingteacher/Magnolia-Realtime/releases/latest'
 
 /** Capture a key combination from a keyboard event */
 function keyComboFromEvent(e: KeyboardEvent): string {

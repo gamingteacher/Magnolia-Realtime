@@ -28,7 +28,7 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - run: npm run ${{ matrix.script }}
+      - run: npm run ${{ matrix.script }} -- --publish never
         env:
           # Unsigned builds by default; set these secrets to sign/notarize macOS.
           CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.CSC_LINK == '' && 'false' || 'true' }}

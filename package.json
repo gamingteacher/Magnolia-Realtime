@@ -7,13 +7,13 @@
     "email": "cale@caledavis.eu"
   },
   "license": "EUPL-1.2",
-  "homepage": "https://github.com/caledavis/Magnolia",
+  "homepage": "https://github.com/gamingteacher/Magnolia-Realtime",
   "repository": {
     "type": "git",
-    "url": "https://github.com/caledavis/Magnolia.git"
+    "url": "https://github.com/gamingteacher/Magnolia-Realtime.git"
   },
   "bugs": {
-    "url": "https://github.com/caledavis/Magnolia/issues"
+    "url": "https://github.com/gamingteacher/Magnolia-Realtime/issues"
   },
   "main": "./out/main/index.js",
   "scripts": {
@@ -219,8 +219,8 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "caledavis",
-        "repo": "Magnolia"
+        "owner": "gamingteacher",
+        "repo": "Magnolia-Realtime"
       }
     ]
   }

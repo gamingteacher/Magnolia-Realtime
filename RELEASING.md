@@ -10,7 +10,7 @@ This file explains two things:
 > Magnolia is built with **electron-vite** (bundles the app) + **electron-builder**
 > (packages + signs + publishes). Config lives in the `build` block of
 > `package.json`. App id: `com.magnolia.app`. Releases publish to
-> `github.com/caledavis/Magnolia`.
+> `github.com/gamingteacher/Magnolia-Realtime`.
 
 ---
 
@@ -24,7 +24,7 @@ machine (or VM) with:
 - **Git**.
 - The repo + dependencies:
   ```sh
-  git clone https://github.com/caledavis/Magnolia.git
+  git clone https://github.com/gamingteacher/Magnolia-Realtime.git
   cd Magnolia
   npm install
   ```
@@ -183,7 +183,7 @@ publish step.
    The first `release:*` to run **creates** the `vX.Y.Z` draft; the others add
    their assets to that same draft.
 4. **Write the release notes.** Open the draft at
-   <https://github.com/caledavis/Magnolia/releases>, and write a short
+   <https://github.com/gamingteacher/Magnolia-Realtime/releases>, and write a short
    **"What's new"** in the release body. **These notes now appear inside the
    app** — Magnolia's update dialog renders the GitHub release body (markdown)
    when it prompts the user to update. So make them user-facing and tidy.

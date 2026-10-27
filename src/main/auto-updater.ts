@@ -14,7 +14,7 @@
  *     dialog so the user knows the check happened.
  *
  * Publishing model: releases are uploaded to
- * https://github.com/caledavis/Magnolia/releases by running
+ * https://github.com/gamingteacher/Magnolia-Realtime/releases by running
  * `npm run release:mac` (or release:win / release:linux) with the
  * GH_TOKEN env var set to a personal access token that can write
  * releases on the repo. electron-builder uploads the .dmg / .zip /
@@ -174,7 +174,7 @@ export async function refreshUpdateBadge(): Promise<void> {
   }
 
   try {
-    const url = `https://github.com/caledavis/Magnolia/releases/latest/download/${latestManifestName()}`
+    const url = `https://github.com/gamingteacher/Magnolia-Realtime/releases/latest/download/${latestManifestName()}`
     const res = await fetch(url, { redirect: 'follow' })
     if (!res.ok) return
     const text = await res.text()
