@@ -22,7 +22,7 @@ interface FootPedalMappings {
   fastForwardSeconds: number
 }
 
-type ThemeId = '' | 'dark' | 'granola' | 'granola-dark' | 'high-contrast' | 'magnolia' | 'magnolia-dark'
+type ThemeId = '' | 'dark' | 'granola' | 'granola-dark' | 'high-contrast' | 'magnolia' | 'magnolia-dark' | 'forest-light' | 'forest-dark'
 
 /** Paper size for exported PDFs — Electron printToPDF `pageSize` values. */
 type PaperSize = 'A4' | 'A3' | 'A5' | 'Letter' | 'Legal' | 'Tabloid'
@@ -89,6 +89,8 @@ interface ThemeOption {
 const THEME_OPTIONS: ThemeOption[] = [
   { id: 'magnolia',      label: 'Magnolia',      swatch: { bg: '#C8D0DA', surface: '#FFFFFF', accent: '#2563EB' } },
   { id: 'magnolia-dark', label: 'Magnolia Dark', swatch: { bg: '#14181E', surface: '#252B35', accent: '#5B8FFF' } },
+  { id: 'forest-light',  label: 'Forest Light',  swatch: { bg: '#c4c8ae', surface: '#f6f7ee', accent: '#6a6e4c' } },
+  { id: 'forest-dark',   label: 'Forest Dark',   swatch: { bg: '#20271a', surface: '#343d2a', accent: '#a3ad84' } },
   { id: 'granola',       label: 'Granola',       swatch: { bg: '#f1e6cf', surface: '#ffffff', accent: '#c97134' } },
   { id: 'granola-dark',  label: 'Granola Dark',  swatch: { bg: '#1f1a14', surface: '#2d271f', accent: '#e08a4a' } },
   { id: '',              label: 'Clean',         swatch: { bg: '#ffffff', surface: '#ececec', accent: '#007AFF' } },

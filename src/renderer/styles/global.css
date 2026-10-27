@@ -365,8 +365,8 @@ html:not([data-theme]) .app-toolbar-btn svg {
 }
 
 /* Canvas — body shows around the floating panel cards. */
-:root[data-theme="magnolia"] body,
-:root[data-theme="magnolia"] #root {
+:root:is([data-theme="magnolia"], [data-theme="forest-light"]) body,
+:root:is([data-theme="magnolia"], [data-theme="forest-light"]) #root {
   background: var(--bg-tertiary);
 }
 
@@ -375,14 +375,14 @@ html:not([data-theme]) .app-toolbar-btn svg {
  * but only 2 px against the window edge. Adding 2 px padding on left,
  * right, and bottom matches the inter-pane gap on the outer edges too;
  * the top stays flush with the toolbar. */
-:root[data-theme="magnolia"] .app-main-panels {
+:root:is([data-theme="magnolia"], [data-theme="forest-light"]) .app-main-panels {
   padding: 0 2px 2px 2px;
   box-sizing: border-box;
 }
 
 /* Panel cards: white tiles, hairline border, two-layer cool-tinted
  * drop shadow. */
-:root[data-theme="magnolia"] .panel {
+:root:is([data-theme="magnolia"], [data-theme="forest-light"]) .panel {
   background: var(--bg-panel);
   border: 1px solid var(--border-color);
   border-radius: 4px;
@@ -392,7 +392,7 @@ html:not([data-theme]) .app-toolbar-btn svg {
   box-sizing: border-box;
   box-shadow: 0 2px 8px rgba(20, 40, 70, 0.18), 0 1px 3px rgba(20, 40, 70, 0.12);
 }
-:root[data-theme="magnolia"] #root > .panel { height: calc(100% - 4px); }
+:root:is([data-theme="magnolia"], [data-theme="forest-light"]) #root > .panel { height: calc(100% - 4px); }
 
 /* macOS rounds the window's corners, and a 4 px panel corner sitting just
  * inside that curve looks pinched. The panels in the window's bottom
@@ -404,20 +404,20 @@ html:not([data-theme]) .app-toolbar-btn svg {
 :root[data-platform="darwin"] {
   --mac-window-radius: 16px;
 }
-:root[data-platform="darwin"][data-theme^="magnolia"] .panel[data-window-corner~="bl"] {
+:root[data-platform="darwin"]:is([data-theme^="magnolia"], [data-theme^="forest"]) .panel[data-window-corner~="bl"] {
   border-bottom-left-radius: max(4px, calc(var(--mac-window-radius) / var(--window-zoom, 1) - 4px));
 }
-:root[data-platform="darwin"][data-theme^="magnolia"] .panel[data-window-corner~="br"] {
+:root[data-platform="darwin"]:is([data-theme^="magnolia"], [data-theme^="forest"]) .panel[data-window-corner~="br"] {
   border-bottom-right-radius: max(4px, calc(var(--mac-window-radius) / var(--window-zoom, 1) - 4px));
 }
 
-:root[data-theme="magnolia"] .modal {
+:root:is([data-theme="magnolia"], [data-theme="forest-light"]) .modal {
   background: var(--bg-panel);
   border: 1px solid var(--border-color);
   border-radius: 4px;
   box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.1);
 }
-:root[data-theme="magnolia"] .context-menu {
+:root:is([data-theme="magnolia"], [data-theme="forest-light"]) .context-menu {
   background: var(--bg-panel);
   border: 1px solid var(--border-color);
   border-radius: 4px;
@@ -427,16 +427,16 @@ html:not([data-theme]) .app-toolbar-btn svg {
 /* In-panel --bg-tertiary rebind: chip / hover / input surfaces
  * inside cards get the subtle light-blue shade instead of the
  * canvas slate. */
-:root[data-theme="magnolia"] .panel,
-:root[data-theme="magnolia"] .modal,
-:root[data-theme="magnolia"] .context-menu {
+:root:is([data-theme="magnolia"], [data-theme="forest-light"]) .panel,
+:root:is([data-theme="magnolia"], [data-theme="forest-light"]) .modal,
+:root:is([data-theme="magnolia"], [data-theme="forest-light"]) .context-menu {
   --bg-tertiary: #EAEFF6;
 }
 
 /* Toolbar: flush against the canvas, no border-bottom, with
  * --text-secondary rebound to --text-primary so wordmark + button
  * labels render in the darkest text rank. */
-:root[data-theme="magnolia"] .app-toolbar {
+:root:is([data-theme="magnolia"], [data-theme="forest-light"]) .app-toolbar {
   background: var(--bg-tertiary) !important;
   border-bottom: none !important;
   --text-secondary: var(--text-primary);
@@ -445,23 +445,23 @@ html:not([data-theme]) .app-toolbar-btn svg {
  * popover is rendered inside .analysis-popover-anchor (inside the
  * toolbar), so without the exclusion this rule matches the popover
  * tile buttons too, defeating their own theme-scoped hover styling. */
-:root[data-theme="magnolia"] .app-toolbar button:not(.analysis-popover-tile):not(.studio-popover-row):not(.checkout-btn):hover {
+:root:is([data-theme="magnolia"], [data-theme="forest-light"]) .app-toolbar button:not(.analysis-popover-tile):not(.studio-popover-row):not(.checkout-btn):hover {
   background: rgba(255, 255, 255, 0.22) !important;
 }
-:root[data-theme="magnolia"] .app-toolbar-btn .toolbar-label {
+:root:is([data-theme="magnolia"], [data-theme="forest-light"]) .app-toolbar-btn .toolbar-label {
   font-weight: 500 !important;
   letter-spacing: 0.01em;
 }
-:root[data-theme="magnolia"] .app-toolbar-btn .toolbar-label,
-:root[data-theme="magnolia"] .app-toolbar-btn svg {
+:root:is([data-theme="magnolia"], [data-theme="forest-light"]) .app-toolbar-btn .toolbar-label,
+:root:is([data-theme="magnolia"], [data-theme="forest-light"]) .app-toolbar-btn svg {
   opacity: 1;
 }
 
 /* Analysis-tools popover tile hover. Explicit, theme-scoped,
  * literal hex value, !important — every dial cranked so this
  * rule lands no matter what the global cascade is doing. */
-:root[data-theme="magnolia"] .analysis-popover-tile:hover,
-:root[data-theme="magnolia"] .analysis-popover-tile:focus-visible {
+:root:is([data-theme="magnolia"], [data-theme="forest-light"]) .analysis-popover-tile:hover,
+:root:is([data-theme="magnolia"], [data-theme="forest-light"]) .analysis-popover-tile:focus-visible {
   /* Matches the Welcome-screen recent-projects rollover (which sets
    * --bg-secondary inline). Single source of truth: change Magnolia's
    * --bg-secondary token and both surfaces follow. */
@@ -469,20 +469,20 @@ html:not([data-theme]) .app-toolbar-btn svg {
   border-color: var(--border-color) !important;
 }
 
-:root[data-theme="magnolia"] ::selection {
+:root:is([data-theme="magnolia"], [data-theme="forest-light"]) ::selection {
   background: var(--selection-bg);
   color: var(--text-primary);
 }
-:root[data-theme="magnolia"] ::-webkit-scrollbar-thumb {
+:root:is([data-theme="magnolia"], [data-theme="forest-light"]) ::-webkit-scrollbar-thumb {
   background: var(--scrollbar-thumb);
   background-clip: border-box;
   border-radius: 4px;
 }
-:root[data-theme="magnolia"] [data-panel-resize-handle-id] {
+:root:is([data-theme="magnolia"], [data-theme="forest-light"]) [data-panel-resize-handle-id] {
   background: transparent !important;
 }
-:root[data-theme="magnolia"] .queries-sidebar-divider[data-panel-resize-handle-id],
-:root[data-theme="magnolia"] .documents-tags-divider[data-panel-resize-handle-id] {
+:root:is([data-theme="magnolia"], [data-theme="forest-light"]) .queries-sidebar-divider[data-panel-resize-handle-id],
+:root:is([data-theme="magnolia"], [data-theme="forest-light"]) .documents-tags-divider[data-panel-resize-handle-id] {
   background: var(--border-color) !important;
 }
 
@@ -527,19 +527,19 @@ html:not([data-theme]) .app-toolbar-btn svg {
   --bg-input: var(--bg-panel);
 }
 
-:root[data-theme="magnolia-dark"] body,
-:root[data-theme="magnolia-dark"] #root {
+:root:is([data-theme="magnolia-dark"], [data-theme="forest-dark"]) body,
+:root:is([data-theme="magnolia-dark"], [data-theme="forest-dark"]) #root {
   background: var(--bg-tertiary);
 }
 
 /* Match the light-Magnolia edge padding — see the comment on the
  * light-theme rule above. */
-:root[data-theme="magnolia-dark"] .app-main-panels {
+:root:is([data-theme="magnolia-dark"], [data-theme="forest-dark"]) .app-main-panels {
   padding: 0 2px 2px 2px;
   box-sizing: border-box;
 }
 
-:root[data-theme="magnolia-dark"] .panel {
+:root:is([data-theme="magnolia-dark"], [data-theme="forest-dark"]) .panel {
   background: var(--bg-panel);
   border: 1px solid var(--border-color);
   border-radius: 4px;
@@ -551,15 +551,15 @@ html:not([data-theme]) .app-toolbar-btn svg {
    * canvases; black at higher opacity gives the cards real lift. */
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.55), 0 1px 3px rgba(0, 0, 0, 0.4);
 }
-:root[data-theme="magnolia-dark"] #root > .panel { height: calc(100% - 4px); }
+:root:is([data-theme="magnolia-dark"], [data-theme="forest-dark"]) #root > .panel { height: calc(100% - 4px); }
 
-:root[data-theme="magnolia-dark"] .modal {
+:root:is([data-theme="magnolia-dark"], [data-theme="forest-dark"]) .modal {
   background: var(--bg-panel);
   border: 1px solid var(--border-color);
   border-radius: 4px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
 }
-:root[data-theme="magnolia-dark"] .context-menu {
+:root:is([data-theme="magnolia-dark"], [data-theme="forest-dark"]) .context-menu {
   background: var(--bg-panel);
   border: 1px solid var(--border-color);
   border-radius: 4px;
@@ -570,16 +570,16 @@ html:not([data-theme]) .app-toolbar-btn svg {
  * inside cards step UP from the panel surface (rather than
  * inheriting the deepest canvas tone and disappearing into the
  * card). */
-:root[data-theme="magnolia-dark"] .panel,
-:root[data-theme="magnolia-dark"] .modal,
-:root[data-theme="magnolia-dark"] .context-menu {
+:root:is([data-theme="magnolia-dark"], [data-theme="forest-dark"]) .panel,
+:root:is([data-theme="magnolia-dark"], [data-theme="forest-dark"]) .modal,
+:root:is([data-theme="magnolia-dark"], [data-theme="forest-dark"]) .context-menu {
   --bg-tertiary: #2F3540;
 }
 
 /* Toolbar matches the canvas; --text-secondary rebound to
  * --text-primary so wordmark + button labels + icons render at
  * full brightness. */
-:root[data-theme="magnolia-dark"] .app-toolbar {
+:root:is([data-theme="magnolia-dark"], [data-theme="forest-dark"]) .app-toolbar {
   background: var(--bg-tertiary) !important;
   border-bottom: none !important;
   --text-secondary: var(--text-primary);
@@ -590,44 +590,114 @@ html:not([data-theme]) .app-toolbar-btn svg {
  * own theme-scoped hover styling lands instead (otherwise the
  * toolbar rule's higher specificity wins because the popover is
  * rendered inside .app-toolbar via the anchor). */
-:root[data-theme="magnolia-dark"] .app-toolbar button:not(.analysis-popover-tile):not(.studio-popover-row):not(.checkout-btn):hover {
+:root:is([data-theme="magnolia-dark"], [data-theme="forest-dark"]) .app-toolbar button:not(.analysis-popover-tile):not(.studio-popover-row):not(.checkout-btn):hover {
   background: rgba(255, 255, 255, 0.08) !important;
 }
 
-:root[data-theme="magnolia-dark"] .app-toolbar-btn .toolbar-label {
+:root:is([data-theme="magnolia-dark"], [data-theme="forest-dark"]) .app-toolbar-btn .toolbar-label {
   font-weight: 500 !important;
   letter-spacing: 0.01em;
 }
-:root[data-theme="magnolia-dark"] .app-toolbar-btn .toolbar-label,
-:root[data-theme="magnolia-dark"] .app-toolbar-btn svg {
+:root:is([data-theme="magnolia-dark"], [data-theme="forest-dark"]) .app-toolbar-btn .toolbar-label,
+:root:is([data-theme="magnolia-dark"], [data-theme="forest-dark"]) .app-toolbar-btn svg {
   opacity: 1;
 }
 
 /* Analysis-tools popover tile hover — explicit, theme-scoped, literal
  * hex, !important. Same approach as light Magnolia. */
-:root[data-theme="magnolia-dark"] .analysis-popover-tile:hover,
-:root[data-theme="magnolia-dark"] .analysis-popover-tile:focus-visible {
+:root:is([data-theme="magnolia-dark"], [data-theme="forest-dark"]) .analysis-popover-tile:hover,
+:root:is([data-theme="magnolia-dark"], [data-theme="forest-dark"]) .analysis-popover-tile:focus-visible {
   /* Same single-source-of-truth as light Magnolia — popover hover
    * tracks --bg-secondary, matching the Welcome rollover. */
   background: var(--bg-secondary) !important;
   border-color: var(--border-color) !important;
 }
 
-:root[data-theme="magnolia-dark"] ::selection {
+:root:is([data-theme="magnolia-dark"], [data-theme="forest-dark"]) ::selection {
   background: var(--selection-bg);
   color: var(--text-primary);
 }
-:root[data-theme="magnolia-dark"] ::-webkit-scrollbar-thumb {
+:root:is([data-theme="magnolia-dark"], [data-theme="forest-dark"]) ::-webkit-scrollbar-thumb {
   background: var(--scrollbar-thumb);
   background-clip: border-box;
   border-radius: 4px;
 }
-:root[data-theme="magnolia-dark"] [data-panel-resize-handle-id] {
+:root:is([data-theme="magnolia-dark"], [data-theme="forest-dark"]) [data-panel-resize-handle-id] {
   background: transparent !important;
 }
-:root[data-theme="magnolia-dark"] .queries-sidebar-divider[data-panel-resize-handle-id],
-:root[data-theme="magnolia-dark"] .documents-tags-divider[data-panel-resize-handle-id] {
+:root:is([data-theme="magnolia-dark"], [data-theme="forest-dark"]) .queries-sidebar-divider[data-panel-resize-handle-id],
+:root:is([data-theme="magnolia-dark"], [data-theme="forest-dark"]) .documents-tags-divider[data-panel-resize-handle-id] {
   background: var(--border-color) !important;
+}
+
+/* ============================================================
+ * Forest Light / Forest Dark — colour-only variations of Magnolia and
+ * Magnolia Dark (the structural rules above are shared via :is()).
+ * Palette: browns #5a2e0e #7d4f25 #996a3c #a98c68, khaki #b9b095,
+ * sage #c4c8ae #a3ad84, olive #6a6e4c #444a35, deep green #343d2a.
+ * ============================================================ */
+:root[data-theme="forest-light"] {
+  --bg-primary: #eceee0;
+  --bg-secondary: #dfe2cc;
+  --bg-tertiary: #c4c8ae;
+  --bg-panel: #f6f7ee;
+  --border-color: #a3ad84;
+  --text-primary: #2b3322;
+  --text-secondary: #444a35;
+  --text-muted: #6a6e4c;
+  --accent: #6a6e4c;
+  --accent-hover: #444a35;
+  --danger: #a8402a;
+  --success: #5c7a3a;
+  --selection-bg: #c4c8ae;
+  --btn-text: #ffffff;
+  --btn-secondary-hover: #d3d7bd;
+  --scrollbar-bg: transparent;
+  --scrollbar-thumb: #a3ad84;
+  --memo-icon-color: #444a35;
+  --quote-icon-color: #996a3c;
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --bg-input: var(--bg-panel);
+  --colourful-chrome: #343d2a;
+}
+:root[data-theme="forest-light"] .panel,
+:root[data-theme="forest-light"] .modal,
+:root[data-theme="forest-light"] .context-menu {
+  --bg-tertiary: #dfe2cc;
+}
+:root[data-theme="forest-light"] .panel {
+  box-shadow: 0 2px 8px rgba(52, 61, 42, 0.18), 0 1px 3px rgba(52, 61, 42, 0.12);
+}
+
+:root[data-theme="forest-dark"] {
+  --bg-primary: #2d3524;
+  --bg-secondary: #3a4430;
+  --bg-tertiary: #20271a;
+  --bg-panel: #343d2a;
+  --border-color: #4f5840;
+  --text-primary: #e4e6d4;
+  --text-secondary: #b9b095;
+  --text-muted: #8c8f70;
+  --accent: #a3ad84;
+  --accent-hover: #c4c8ae;
+  --danger: #d9775a;
+  --success: #8fb86a;
+  --selection-bg: #55603f;
+  --btn-text: #20271a;
+  --btn-secondary-hover: #3f4934;
+  --scrollbar-bg: transparent;
+  --scrollbar-thumb: #565d42;
+  --memo-icon-color: #b9b095;
+  --quote-icon-color: #c9a06a;
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --bg-input: var(--bg-panel);
+}
+:root[data-theme="forest-dark"] .panel,
+:root[data-theme="forest-dark"] .modal,
+:root[data-theme="forest-dark"] .context-menu {
+  --bg-tertiary: #3f4934;
 }
 
 /* Keyboard focus indicator — visible across every theme so keyboard /
@@ -1505,10 +1575,10 @@ html:not([data-theme]) .app-toolbar {
  * is checked out. Icons mode overrides this again to no highlight at
  * all (further down) — that wins there via a more specific selector
  * regardless of source order. */
-:root[data-theme="magnolia"] .checkout-btn.checkout-btn--none:hover {
+:root:is([data-theme="magnolia"], [data-theme="forest-light"]) .checkout-btn.checkout-btn--none:hover {
   background: rgba(255, 255, 255, 0.22) !important;
 }
-:root[data-theme="magnolia-dark"] .checkout-btn.checkout-btn--none:hover {
+:root:is([data-theme="magnolia-dark"], [data-theme="forest-dark"]) .checkout-btn.checkout-btn--none:hover {
   background: rgba(255, 255, 255, 0.08) !important;
 }
 
@@ -2310,7 +2380,7 @@ html:not([data-theme]) .app-toolbar {
  * window controls. The popovers are portalled to <body>, so they keep
  * the theme's own light tokens. */
 :root[data-colourful]:not([data-theme="high-contrast"]):not([data-theme^="granola"]):not([data-theme$="dark"]) .app-toolbar {
-  background: #2b3343 !important;
+  background: var(--colourful-chrome, #2b3343) !important;
   border-bottom: none !important;
   --text-primary: #ffffff;
   --text-secondary: #dfe4ee;
@@ -2325,7 +2395,7 @@ html:not([data-theme]) .app-toolbar {
  * Scoped to .app-shell (the main window's root) rather than rebinding
  * --bg-primary, which also feeds canvases, inputs and popped-out windows. */
 :root[data-colourful]:not([data-theme="high-contrast"]):not([data-theme^="granola"]):not([data-theme$="dark"]) .app-shell {
-  background: #2b3343;
+  background: var(--colourful-chrome, #2b3343);
 }
 :root[data-colourful]:not([data-theme="high-contrast"]):not([data-theme^="granola"]):not([data-theme$="dark"]) .app-toolbar button:not(.checkout-btn):hover {
   background: rgba(255, 255, 255, 0.14) !important;
