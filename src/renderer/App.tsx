@@ -1744,6 +1744,9 @@ function App() {
       const tag = el.tagName.toLowerCase()
       return tag === 'input' || tag === 'textarea' || (el as HTMLElement).isContentEditable
     }
+    // A note's editor keeps no native undo history (every keystroke is a
+    // project edit — see CodedTextView), so undo there is project undo.
+    const inNoteEditor = () => !!(document.activeElement as HTMLElement | null)?.closest?.('[data-note-editor]')
     const handleKeydown = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey)) return
       if (e.key === 'a' && !isTextInput()) {
@@ -1755,10 +1758,10 @@ function App() {
           e.preventDefault()
           window.dispatchEvent(new CustomEvent('magnolia-select-all-codes'))
         }
-      } else if (e.key === 'z' && !e.shiftKey && !isTextInput()) {
+      } else if (e.key === 'z' && !e.shiftKey && (!isTextInput() || inNoteEditor())) {
         e.preventDefault()
         useUndoStore.getState().undo()
-      } else if (e.key === 'z' && e.shiftKey && !isTextInput()) {
+      } else if (e.key === 'z' && e.shiftKey && (!isTextInput() || inNoteEditor())) {
         e.preventDefault()
         useUndoStore.getState().redo()
       } else if (e.key === 'f') {
