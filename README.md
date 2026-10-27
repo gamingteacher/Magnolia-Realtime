@@ -89,7 +89,6 @@ All other features (query builder, analysis tools, transcription, video and surv
 
 - The Electron UI for sync has been verified at the backend level and with unit tests. Please report problems you find when running it.
 - Supabase free-tier limits apply (for example 50 MB per file, and projects pause when idle).
-- Sign-in currently uses anonymous Supabase auth until Part 2 lands.
 
 ## Licence
 
