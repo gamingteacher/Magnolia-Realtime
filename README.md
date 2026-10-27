@@ -30,15 +30,6 @@ Released under the European Union Public Licence (EUPL), like the original.
 - **Join and merge.** Joining an existing project opens Magnolia's Merge review, so you can reconcile local work with the shared project.
 - **Status badge.** A badge shows connection state, pending changes and conflicts.
 
-### Planned: accounts, invites and splash-screen sign-in (Part 2)
-
-- Username and password accounts that do not depend on an invitation, with the author's name shown on every change.
-- Invitations with a role (editor or viewer) and an expiry time, usable by multiple people until they expire or are revoked.
-- A "Sign in / Sync…" button on the splash screen, so you can connect to a shared project without creating a local one first.
-- A full step-by-step database setup guide.
-
-See [docs/sync-part2-plan.md](docs/sync-part2-plan.md).
-
 ## Quick start
 
 Requirements: a current Node.js LTS and a Supabase project (the free tier works).
