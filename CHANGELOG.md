@@ -4,6 +4,8 @@ All notable changes to Magnolia are documented here. The format follows [Keep a 
 
 ## [Unreleased]
 
+## [1.9.15]
+
 ### Added
 - **Cloud Sync (experimental, opt-in).** Collaborate through your own Supabase project with username/password accounts, encrypted local sessions, multi-use expiring/revocable invites, editor/viewer roles, member management and author attribution (members, invites, invite uses, entity and op authors are all foreign-keyed to `profiles`). Connect from the welcome screen without first opening a local project, or from Preferences. Cloud data stays in your Supabase project; service-role and secret keys are rejected. Offline-first with retry, conflict handling and text-edit merging. Follow the new step-by-step Supabase setup guide and run the idempotent setup SQL.
 - **Live awareness in Cloud Sync.** See where other members are working: a coloured caret and selection in coded text, a named outline on items that opt in with a `data-sync-entity="kind:guid"` attribute, and a list of who is in which document or tool. Each member keeps a stable colour. Indicators clear when someone goes idle (60 s), hides the window or disconnects. Open views update automatically when someone else changes them, with a short "Updated by Ana" notice; edits you are in the middle of are merged with the existing 3-way text merge (your caret stays put), and a notice appears if they truly conflict. Viewers see everything but still never push edits. Uses Realtime Presence, so no SQL changes are needed.

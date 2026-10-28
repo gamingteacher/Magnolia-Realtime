@@ -257,15 +257,27 @@ export async function startSync(projectId: string): Promise<void> {
     }
   }
   const authorOf = (kind: string, guid: string): string | null => authors.get(`${kind}:${guid}`) ?? null
-  const nameOf = (id: string | null | undefined): string =>
-    (id && (useSyncStore.getState().presence.find((p) => p.userId === id)?.displayName ??
-      useProjectStore.getState().users.find((u) => u.guid === id)?.name)) || 'Another user'
+  // Member names, so an author who is offline (not in presence) is still named.
+  const memberNames = new Map<string, string>()
+  const loadMembers = async (): Promise<void> => {
+    try { for (const m of await listMembers(projectId)) memberNames.set(m.user_id, m.display_name || m.username) } catch { /* fall back to other sources */ }
+  }
+  const knownName = (id: string | null | undefined): string | undefined =>
+    id ? (memberNames.get(id) ?? useSyncStore.getState().presence.find((p) => p.userId === id)?.displayName ??
+      useProjectStore.getState().users.find((u) => u.guid === id)?.name) : undefined
+  const nameOf = (id: string | null | undefined): string => knownName(id) || 'Another user'
+  void loadMembers()
   const applyRemote = (changes: Parameters<typeof applyRemoteToStores>[0]): void => {
     applyKeepingCaret(changes, authorOf, () => applyRemoteToStores(changes))
     const open = useDocumentStore.getState().viewedDocumentGuid
-    for (const n of noticesForRemoteChanges(changes, { selfId: account.userId, authorOf, nameOf, openSourceGuid: open })) {
-      useNoticeStore.getState().push(n)
+    const notify = (): void => {
+      for (const n of noticesForRemoteChanges(changes, { selfId: account.userId, authorOf, nameOf, openSourceGuid: open })) {
+        useNoticeStore.getState().push(n)
+      }
     }
+    const unknown = changes.some((c) => { const a = authorOf(c.kind, c.guid); return a && a !== account.userId && !knownName(a) })
+    if (unknown) void loadMembers().then(notify)
+    else notify()
   }
   engine = new SyncEngine(tracked, {
     applyRemote,
