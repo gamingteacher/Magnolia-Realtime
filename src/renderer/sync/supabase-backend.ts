@@ -30,7 +30,7 @@ export class SupabaseBackend implements SyncBackend {
 
   async pullSince(seq: number, limit: number): Promise<RemoteRow[]> {
     const { data, error } = await this.client
-      .from('entities').select('kind,guid,parent_guid,data,version,deleted,seq')
+      .from('entities').select('kind,guid,parent_guid,data,version,deleted,seq,updated_by')
       .eq('project_id', this.projectId).gt('seq', seq).order('seq').limit(limit)
     if (error) throw new Error(error.message)
     return (data ?? []) as RemoteRow[]

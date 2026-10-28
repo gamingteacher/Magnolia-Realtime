@@ -9,6 +9,7 @@ export interface RemoteRow {
   version: number
   deleted: boolean
   seq: number
+  updated_by?: string | null
 }
 
 export interface PushOp {

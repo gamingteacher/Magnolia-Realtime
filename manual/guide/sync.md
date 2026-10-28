@@ -39,6 +39,20 @@ Projects created with the earlier anonymous-only Sync preview are not automatica
 
 Changes sync while online and queue for retry when disconnected. Magnolia merges compatible text edits and reports conflicts in the sync controls. The activity list attributes changes to the account's display name.
 
+## Seeing who is working where
+
+While connected, other online members appear in a small list above the sync badge, showing their name and the document or tool they have open. Each member has their own colour, the same on every computer.
+
+- **Text documents:** a coloured caret and selection mark where someone else is reading or selecting. Hover the caret to see the name. Positions follow edits made by others.
+- **Other places:** a coloured outline with the member's name appears on items that support it; otherwise the list above shows which tool or document they are in.
+- A member disappears when they go idle (about a minute without activity), minimise or hide the window, or disconnect. Viewers are shown too, but never push edits.
+
+## Live updates
+
+When another member changes something you have open, it updates by itself and a short notice such as "Updated by Ana" appears. If you are typing in the same text, their change is merged with yours and your caret keeps its place. If you both changed the same words, your version is not overwritten: a notice tells you, and you choose *Keep mine* or *Take theirs* in the sync badge. Closed tabs catch up when you next open them.
+
+No database changes are needed for these features; they use Supabase Realtime Presence.
+
 ## Limits
 
 Supabase limits depend on your plan and project settings. On the free plan, storage uploads are typically limited to **50 MB per file**, the database quota is **500 MB**, and projects may pause after **7 days of inactivity**. Magnolia's own per-file sync limit is 200 MB, but the Supabase project limit applies first. Check your Supabase dashboard for current quotas and usage.

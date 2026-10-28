@@ -92,6 +92,7 @@ import { HelpPopover } from './components/Toolbar/HelpPopover'
 import { WindowControls } from './components/Toolbar/WindowControls'
 import type { Project, Query, CodeCondition, Code, TextSource, QDASet, LogbookInitData, AnalysisInitData, AnalysisToolType, PlainTextSelection, Memo, MemoEditInitData, SurveyCellScopeArgs } from './models/types'
 import { SyncStatusBadge } from './sync/SyncStatusBadge'
+import { AwarenessOverlay } from './components/Sync/AwarenessOverlay'
 import { buildSurveyEntityLabels } from './utils/survey/survey-labels'
 
 /** Fold the survey-cell scope carried by an analysis cell-click into the
@@ -2527,6 +2528,7 @@ function App() {
       }}
     >
       <SyncStatusBadge />
+      <AwarenessOverlay />
       {/* ── Toolbar ── */}
       <div
         className="app-toolbar"

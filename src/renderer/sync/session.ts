@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getAuthClient, currentUser } from './auth'
-import { SyncEngine, planRetry, type SyncConflict } from './engine'
+import { SyncEngine, planRetry, type SyncConflict, type SyncBackend } from './engine'
 import { SupabaseBackend } from './supabase-backend'
 import { applyRemoteToStores, observeLocalChanges, snapshotEntities, sourcesNeedingUpload, binaryRefs, setBinaryListener, type BinaryRef } from './store-bridge'
 import { useDocumentStore } from '../stores/document-store'
@@ -12,8 +12,11 @@ import { useMergeReviewStore } from '../stores/merge-review-store'
 import { MERGE_TAB_ID } from '../utils/tab-ids'
 import { useCodeStore } from '../stores/code-store'
 import { entitiesToProject, type SyncEntity } from './entity-map'
+import { startAwareness, applyKeepingCaret } from './awareness'
+import type { AwarenessState } from './awareness-core'
+import { noticesForRemoteChanges, noticeForConflict, useNoticeStore } from './remote-changes'
 
-export interface PresenceEntry { userId: string; displayName: string; ts: number }
+export interface PresenceEntry extends Partial<AwarenessState> { userId: string; displayName: string; ts: number }
 export interface ActivityEntry { kind: string; guid: string; op: string; author: string | null; author_name: string | null; created_at: string }
 export interface InviteEntry {
   code: string
@@ -201,6 +204,8 @@ async function loop(): Promise<void> {
       if (useSyncStore.getState().paused) break
       try {
         st.set({ status: 'syncing' })
+        // Queue in-progress local edits first so a pull merges them instead of overwriting them.
+        if (useSyncStore.getState().role !== 'viewer') engine.localChanged(snapshotEntities())
         await engine.pull()
         if (useSyncStore.getState().role === 'viewer') {
           engine.revertLocal(snapshotEntities())
@@ -242,7 +247,31 @@ export async function startSync(projectId: string): Promise<void> {
     modifyingUserGUID: account.userId
   })
   const backend = new SupabaseBackend(c, projectId)
-  engine = new SyncEngine(backend, { applyRemote: applyRemoteToStores, newId: generateGuid })
+  const authors = new Map<string, string | null>()
+  const tracked: SyncBackend = {
+    upsert: (op) => backend.upsert(op),
+    pullSince: async (seq, limit) => {
+      const rows = await backend.pullSince(seq, limit)
+      for (const r of rows) authors.set(`${r.kind}:${r.guid}`, r.updated_by ?? null)
+      return rows
+    }
+  }
+  const authorOf = (kind: string, guid: string): string | null => authors.get(`${kind}:${guid}`) ?? null
+  const nameOf = (id: string | null | undefined): string =>
+    (id && (useSyncStore.getState().presence.find((p) => p.userId === id)?.displayName ??
+      useProjectStore.getState().users.find((u) => u.guid === id)?.name)) || 'Another user'
+  const applyRemote = (changes: Parameters<typeof applyRemoteToStores>[0]): void => {
+    applyKeepingCaret(changes, authorOf, () => applyRemoteToStores(changes))
+    const open = useDocumentStore.getState().viewedDocumentGuid
+    for (const n of noticesForRemoteChanges(changes, { selfId: account.userId, authorOf, nameOf, openSourceGuid: open })) {
+      useNoticeStore.getState().push(n)
+    }
+  }
+  engine = new SyncEngine(tracked, {
+    applyRemote,
+    newId: generateGuid,
+    onConflict: (cf) => useNoticeStore.getState().push(noticeForConflict(cf, nameOf(authorOf(cf.kind, cf.guid))))
+  })
   const filePath = useProjectStore.getState().filePath
   // Saved sync state belongs to one local file; reusing it for another (e.g. a fresh empty
   // project) would make every cloud item look locally deleted and wipe the cloud project.
@@ -310,17 +339,7 @@ export async function startSync(projectId: string): Promise<void> {
 }
 
 function startPresence(c: SupabaseClient, projectId: string): () => void {
-  let userId = ''
-  const ch = c.channel(`presence:${projectId}`, { config: { presence: { key: generateGuid() } } })
-  ch.on('presence', { event: 'sync' }, () => {
-    const list = Object.values(ch.presenceState()).flat() as unknown as PresenceEntry[]
-    useSyncStore.getState().set({ presence: list })
-  }).subscribe(async (status) => {
-    if (status !== 'SUBSCRIBED') return
-    userId = (await c.auth.getUser()).data.user?.id ?? ''
-    await ch.track({ userId, displayName: useSyncStore.getState().account?.displayName ?? 'User', ts: Date.now() })
-  })
-  return () => { void c.removeChannel(ch) }
+  return startAwareness(c, projectId)
 }
 
 export async function fetchActivity(limit = 100): Promise<ActivityEntry[]> {
@@ -367,4 +386,5 @@ export async function stopSync(): Promise<void> {
   stopFns = []
   engine = null
   useSyncStore.getState().set({ status: 'off', projectId: null, role: null, pending: 0, conflicts: [], presence: [] })
+  useNoticeStore.getState().clear()
 }
