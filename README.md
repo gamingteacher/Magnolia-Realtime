@@ -34,7 +34,19 @@ Installers for Windows and Linux (AppImage, .deb, .rpm) are on the [Releases pag
 - **Join and merge.** Joining an existing project opens Magnolia's Merge review, so you can reconcile local work with the shared project.
 - **Status badge.** A badge shows connection state, pending changes and conflicts.
 
-## Quick start
+## Install
+
+To get started, download the latest release for your operating system from the [Releases page](https://github.com/gamingteacher/Magnolia-Realtime/releases).
+
+Depending on your OS, look for the following file types:
+
+- **Windows:** Download the `.exe` or `.msi` installer.
+- **macOS:** Download the `.dmg` or `.app` file.
+- **Linux:** Download the `.AppImage`, `.deb`, or `.rpm` package.
+
+Once downloaded, follow the standard installation instructions for your operating system.
+
+## Development
 
 Requirements: a current Node.js LTS, a [Rust toolchain](https://rustup.rs), the [Tauri system dependencies](https://tauri.app/start/prerequisites/) (on Fedora: `webkit2gtk4.1-devel gtk3-devel librsvg2-devel libappindicator-gtk3-devel dbus-devel openssl-devel`), and a Supabase project (the free tier works).
 
