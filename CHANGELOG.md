@@ -4,6 +4,13 @@ All notable changes to Magnolia are documented here. The format follows [Keep a 
 
 ## [Unreleased]
 
+## [2.0.2]
+
+### Fixed
+- Windows release builds failed because Rollup's native Windows package was missing from the lockfile.
+- The release workflow now checks the updater signing key before building, so a wrong key or password fails early.
+- The Build workflow no longer runs on macOS; macOS builds aren't supported in this fork.
+
 ## [2.0.1]
 
 ### Changed
