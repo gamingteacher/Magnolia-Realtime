@@ -10,9 +10,6 @@ Magnolia stays local-first. Without sync, it works exactly as before: local file
 
 Based on Magnolia 2.0 (Tauri 2 + Rust). Released under the European Union Public Licence (EUPL), like the original.
 
-## Download
-
-Installers for Windows and Linux (AppImage, .deb, .rpm) are on the [Releases page](https://github.com/gamingteacher/Magnolia-Realtime/releases/latest). The app updates itself from there.
 
 <p align="center">
   <img src="screenshot-interface.webp" alt="Magnolia Realtime" width="49%">
@@ -40,15 +37,16 @@ To get started, download the latest release for your operating system from the [
 
 Depending on your OS, look for the following file types:
 
-- **Windows:** Download the `.exe` or `.msi` installer.
-- **macOS:** Download the `.dmg` or `.app` file.
+- **Windows:** Download the `.exe` installer.
 - **Linux:** Download the `.AppImage`, `.deb`, or `.rpm` package.
+
+The app updates itself from the Releases page. macOS builds are not published.
 
 Once downloaded, follow the standard installation instructions for your operating system.
 
 ## Development
 
-Requirements: a current Node.js LTS, a [Rust toolchain](https://rustup.rs), the [Tauri system dependencies](https://tauri.app/start/prerequisites/) (on Fedora: `webkit2gtk4.1-devel gtk3-devel librsvg2-devel libappindicator-gtk3-devel dbus-devel openssl-devel`), and a Supabase project (the free tier works).
+To build from source you need a current Node.js LTS, a [Rust toolchain](https://rustup.rs), the [Tauri system dependencies](https://tauri.app/start/prerequisites/) (on Fedora: `webkit2gtk4.1-devel gtk3-devel librsvg2-devel libappindicator-gtk3-devel dbus-devel openssl-devel`), and a Supabase project (the free tier works).
 
 ```bash
 git clone https://github.com/gamingteacher/Magnolia-Realtime
