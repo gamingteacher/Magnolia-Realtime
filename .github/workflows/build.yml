@@ -1,6 +1,7 @@
-# Builds and tests Magnolia on macOS, Windows and Linux for every push and
-# pull request. Each platform compiles its own native code (WebKit / WebView2
-# / WebKitGTK printing), so this is the check that all three still build.
+# Builds and tests Magnolia on Windows and Linux for every push and pull
+# request (macOS builds aren't supported in this fork). Each platform compiles
+# its own native code (WebView2 / WebKitGTK printing), so this is the check
+# that both still build.
 # It doesn't produce installers — releases are cut as in RELEASING.md.
 
 name: Build
@@ -23,7 +24,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest, ubuntu-22.04]
+        os: [windows-latest, ubuntu-22.04]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
