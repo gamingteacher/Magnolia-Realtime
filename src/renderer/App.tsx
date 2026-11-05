@@ -4,6 +4,7 @@ import { DocumentBrowser } from './components/DocumentBrowser/DocumentBrowser'
 import { CodeBrowser, CodeEditDialog } from './components/CodeBrowser/CodeBrowser'
 import { DocumentViewer } from './components/DocumentViewer/DocumentViewer'
 import { QueryResultViewer } from './components/QueryResultViewer/QueryResultViewer'
+import { wordCondition, sentenceCondition, type WordQueryCodes } from './components/Analysis/word-counts'
 import { SavedQueries } from './components/SavedQueries/SavedQueries'
 import { SavedAnalyses } from './components/SavedAnalyses/SavedAnalyses'
 import {
@@ -19,7 +20,7 @@ import {
   faChevronsRight
 } from './components/Icon'
 import { LicenceDialog } from './components/Licence/LicenceDialog'
-import { UpdateDialog, type UpdateAvailableInfo } from './components/Update/UpdateDialog'
+import { isMac } from './utils/platform'
 import { sourceTypeFromExtension } from './utils/format-registry'
 import { parseSurveyGrid, type SurveyFormat } from './utils/survey/survey-parser'
 import { parseCsv } from './utils/survey/csv-parser'
@@ -38,6 +39,7 @@ const ANALYSIS_TOOL_TITLES: Record<string, string> = {
   'code-frequencies': 'Code Frequencies',
   'code-orders': 'Code Orders',
   'word-frequencies': 'Word Frequencies',
+  'word-combinations': 'Word Combinations',
   'reports': 'Report'
 }
 
@@ -55,7 +57,7 @@ function flattenCodesWithParent(
 }
 import { useProjectStore, useCheckoutLockedBy, checkoutLockedTitle } from './stores/project-store'
 import { usePreferencesStore } from './stores/preferences-store'
-import { useCodeColourPresets, nextCodeColour } from './utils/code-colours'
+import { useCodeColourPresets, nextCodeColour, codeColourPresetsFor } from './utils/code-colours'
 import { useWindowCornerPanels } from './utils/window-corner-panels'
 import { useMergeReviewStore } from './stores/merge-review-store'
 import { useDocumentStore, surveyEntityKey } from './stores/document-store'
@@ -66,6 +68,7 @@ import { useUndoStore } from './stores/undo-store'
 import { useLogbookStore } from './stores/logbook-store'
 import { useMemoStore } from './stores/memo-store'
 import { useQuoteStore } from './stores/quote-store'
+import { flushViewPositions } from './stores/view-position-store'
 import { useRelationshipMapStore } from './stores/relationship-map-store'
 import { useSurveyViewStore } from './stores/survey-view-store'
 import { useAnalysisTabsStore } from './stores/analysis-tabs-store'
@@ -78,7 +81,10 @@ import { StealBackDialog } from './components/StealBackDialog'
 import { NameGateOverlay } from './components/NameGateOverlay'
 import { CheckOutButton } from './components/Toolbar/CheckOutButton'
 // ES import so Vite bundles + hashes the Magnolia toolbar icon for production.
-import magnoliaIconUrl from './assets/magnoliaicononly.svg'
+// Inlined as a data URL: the logo is drawn as a CSS mask, and WebKit can
+// keep a failed mask fetch (e.g. while the dev server rebuilds) and draw
+// nothing. An inline URL has nothing to fetch.
+import magnoliaIconUrl from './assets/magnoliaicononly.svg?inline'
 import { usePendingSelectionStore } from './stores/pending-selection-store'
 import { useNewCodeTriggerStore } from './stores/new-code-trigger-store'
 import { generateGuid } from './utils/guid'
@@ -88,9 +94,14 @@ import { MemosPane } from './components/Memos/MemosPane'
 import { QuotesPane } from './components/Quotes/QuotesPane'
 import { AnalysisPopover } from './components/Toolbar/AnalysisPopover'
 import { StudioPopover } from './components/Toolbar/StudioPopover'
-import { HelpPopover } from './components/Toolbar/HelpPopover'
+import { HelpPopover, MANUAL_URL, SPONSOR_URL, HELP_ICONS } from './components/Toolbar/HelpPopover'
+import { PANE_ICONS } from './utils/pane-icons'
+import { memoPlacer, type MemoPlace } from './utils/memo-places'
+import { showMemoLocation } from './utils/show-memo'
+import { RibbonTabs, RibbonBody, useRibbon, type RibbonButtonDef, type RibbonTabDef } from './components/Toolbar/Ribbon'
+import { TOOL_REGISTRY } from './utils/tool-registry'
 import { WindowControls } from './components/Toolbar/WindowControls'
-import type { Project, Query, CodeCondition, Code, TextSource, QDASet, LogbookInitData, AnalysisInitData, AnalysisToolType, PlainTextSelection, Memo, MemoEditInitData, SurveyCellScopeArgs } from './models/types'
+import type { Project, Query, CodeCondition, Code, TextSource, QDASet, LogbookInitData, AnalysisInitData, AnalysisToolType, PlainTextSelection, Memo, MemoEditInitData, MemosWindowData, SurveyCellScopeArgs } from './models/types'
 import { SyncStatusBadge } from './sync/SyncStatusBadge'
 import { AwarenessOverlay } from './components/Sync/AwarenessOverlay'
 import { buildSurveyEntityLabels } from './utils/survey/survey-labels'
@@ -139,9 +150,22 @@ function describeCondition(cond: CodeCondition, findCode: (guid: string) => Code
       return `(${describeCondition(cond.condition1, findCode, d + 1)}) before (${describeCondition(cond.condition2, findCode, d + 1)})`
     case 'followedBy':
       return `(${describeCondition(cond.condition1, findCode, d + 1)}) followed by (${describeCondition(cond.condition2, findCode, d + 1)})`
+    case 'sameSentence':
+      return `(${describeCondition(cond.condition1, findCode, d + 1)}) in the same sentence as (${describeCondition(cond.condition2, findCode, d + 1)})`
     default:
       return 'Query'
   }
+}
+
+/** The saved queries a word search is limited to (see Query.within), or
+ *  undefined when the word tool wasn't counting query results. */
+function withinQueries(queryGuids: string[] | undefined): Query[] | undefined {
+  if (!queryGuids) return undefined
+  const saved = useQueryStore.getState().savedQueries
+  return queryGuids.flatMap((g) => {
+    const q = saved.find((sq) => sq.guid === g)?.query
+    return q ? [q] : []
+  })
 }
 
 function describeQuery(
@@ -194,13 +218,13 @@ function describeQuery(
     }
   }
   if (parts.length > 0) name += ' IN ' + parts.join(', ')
+  if (query.within) name += ` inside the results of ${query.within.length === 1 ? '1 query' : `${query.within.length} queries`}`
   return name
 }
 
 /** Toolbar pill layout: groups a set of related buttons in a row. The
  *  rounded chip background/padding itself (macOS Mail-style) is CSS,
- *  scoped to Icons mode only via .app-toolbar-pill in global.css —
- *  Icons and Text mode reverts to a plain, unfilled row (see
+ *  scoped to Icons mode via .app-toolbar-pill in global.css (see
  *  Preferences → Appearance → Toolbar Style). */
 const TOOLBAR_PILL_STYLE: React.CSSProperties = {
   display: 'flex',
@@ -215,6 +239,69 @@ function ToolbarDivider(): JSX.Element {
   return <div style={{ width: 1, height: 16, background: 'var(--border-color)', margin: '0 4px', flexShrink: 0 }} />
 }
 
+/** Send the Codebook window the current codes and their coded-segment
+ *  counts (counted as the Codes pane counts them), opening it if it
+ *  isn't open. `renameGuid` asks it to start renaming that code. */
+function sendCodebookData(renameGuid?: string): void {
+  const codeCounts: Record<string, number> = {}
+  for (const source of useDocumentStore.getState().sources) {
+    for (const sel of source.selections) {
+      for (const coding of sel.codings) codeCounts[coding.codeGuid] = (codeCounts[coding.codeGuid] || 0) + 1
+    }
+  }
+  const initData: CodebookInitData = {
+    codes: useCodeStore.getState().codes,
+    codeCounts,
+    renameGuid,
+    theme: document.documentElement.getAttribute('data-theme') || ''
+  }
+  window.api.openCodebookWindow(initData)
+}
+
+/** Who has the project checked out, when it isn't this user: the same
+ *  test as useCheckoutLockedBy, outside a component. */
+function checkoutLockedByNow(): string | null {
+  const marker = useProjectStore.getState().checkoutMarker
+  if (!marker) return null
+  return marker.userName !== usePreferencesStore.getState().userName.trim() ? marker.userName : null
+}
+
+/** What the Memos window shows: every memo, where each is attached, and
+ *  whether edits are locked by someone else's checkout. */
+function memosWindowData(): MemosWindowData {
+  const memos = useMemoStore.getState().memos
+  const place = memoPlacer({
+    sources: useDocumentStore.getState().sources,
+    contents: useDocumentStore.getState().sourceContents,
+    savedQueries: useQueryStore.getState().savedQueries,
+    savedAnalyses: useProjectStore.getState().savedAnalyses ?? []
+  })
+  const places: Record<string, MemoPlace> = {}
+  for (const m of memos) places[m.guid] = place(m)
+  return { memos, places, lockedBy: checkoutLockedByNow(), theme: document.documentElement.getAttribute('data-theme') || '' }
+}
+
+/** Removes a memo, and its boxes on any relationship map. */
+function deleteMemoEverywhere(guid: string): void {
+  useMemoStore.getState().removeMemo(guid)
+  const rmStore = useRelationshipMapStore.getState()
+  for (const m of Object.values(rmStore.maps)) {
+    const nextElements = m.elements.filter((el) => !(el.kind === 'memo' && el.entityGuid === guid))
+    if (nextElements.length !== m.elements.length) rmStore.setElements(m.guid, nextElements)
+  }
+}
+
+/** Opens a memo in its own edit window; `isNew` for a draft that is only
+ *  created when saved. */
+function openMemoEditor(memo: Memo, isNew = false): void {
+  const initData: MemoEditInitData = {
+    memo,
+    theme: document.documentElement.getAttribute('data-theme') || '',
+    ...(isNew ? { isNew: true } : {})
+  }
+  window.api.openMemoEditWindow(initData)
+}
+
 function App() {
   const [showNewCodeDialog, setShowNewCodeDialog] = useState(false)
   const [pendingCodeAllNewCode, setPendingCodeAllNewCode] = useState(false)
@@ -226,6 +313,7 @@ function App() {
   // drop target so the survey lands in the right folder on confirm.
   const [surveyImportQueue, setSurveyImportQueue] = useState<
     {
+      id: number
       csv: string
       suggestedName: string
       parsed: SurveyData
@@ -241,6 +329,10 @@ function App() {
    *  so the dialog can show "Detected as …" and let the user override
    *  if the detection was a guess. Errors surface as an alert; the
    *  file is skipped on failure. */
+  // Keys the preview dialog per queue entry: it seeds its state from props
+  // once, so without a fresh key the next survey would show (and import)
+  // the previous one's parse.
+  const surveyImportSeq = useRef(0)
   const queueSurveyImport = useCallback(
     (csv: string, suggestedName: string, folderGuid?: string) => {
       try {
@@ -250,6 +342,7 @@ function App() {
         setSurveyImportQueue((prev) => [
           ...prev,
           {
+            id: ++surveyImportSeq.current,
             csv,
             suggestedName,
             parsed,
@@ -270,7 +363,6 @@ function App() {
   // Documents whose binary content is missing from the just-opened .qdpx —
   // drives the re-import banner so the user can repair the project.
   const [missingBinaries, setMissingBinaries] = useState<MissingBinary[]>([])
-  const [updateInfo, setUpdateInfo] = useState<UpdateAvailableInfo | null>(null)
   // Someone else's checkout marker found on a just-opened project, hit by a
   // first-edit auto-checkout attempt that lost the race, or clicked into
   // from any mutating control app-wide — see project-store.ts's
@@ -305,10 +397,6 @@ function App() {
   useEffect(() => {
     if (!prefsLoaded) loadPrefs()
   }, [prefsLoaded, loadPrefs])
-
-  useEffect(() => {
-    return window.api.onUpdateAvailable(setUpdateInfo)
-  }, [])
 
   // "Newer version available" nudge badge on the toolbar wordmark. State is
   // computed in the main process (independent of whether this build can
@@ -346,6 +434,7 @@ function App() {
   // Which pane last took a mousedown — read only by the keyboard handler
   // below, never during render. A ref, not state: as state, every click
   // into a different pane re-rendered the whole App (and every open tool).
+  const toggleRibbonRef = useRef<() => void>(() => {})
   const activePanelRef = useRef<'documents' | 'codes' | 'viewer' | 'queries' | null>(null)
   const setActivePanel = (panel: 'documents' | 'codes' | 'viewer' | 'queries'): void => {
     activePanelRef.current = panel
@@ -410,13 +499,7 @@ function App() {
   const logbookStore = useLogbookStore()
   const memoStore = useMemoStore()
 
-  const openCodebook = useCallback(() => {
-    const initData: CodebookInitData = {
-      codes: codeStore.codes,
-      theme: document.documentElement.getAttribute('data-theme') || ''
-    }
-    window.api.openCodebookWindow(initData)
-  }, [codeStore.codes])
+  const openCodebook = useCallback(() => sendCodebookData(), [])
 
   const openLogbook = useCallback(() => {
     const initData: LogbookInitData = {
@@ -425,6 +508,8 @@ function App() {
     }
     window.api.openLogbookWindow(initData)
   }, [logbookStore.entries])
+
+  const openMemos = useCallback(() => window.api.openMemosWindow(memosWindowData()), [])
 
   const openAnalysis = useCallback((toolType: AnalysisToolType, config?: any) => {
     // Relationship Maps open as a tab in the Document Viewer instead of a
@@ -1616,7 +1701,7 @@ function App() {
     }
   }, [codeStore, pendingCodeAllNewCode])
 
-  // Handle menu actions from Electron
+  // Handle actions from the native application menu
   useEffect(() => {
     const unsubscribe = window.api.onMenuAction((action) => {
       switch (action) {
@@ -1696,6 +1781,9 @@ function App() {
         case 'toggle-panel-memos': togglePanel('memos'); break
         case 'toggle-panel-quotes': togglePanel('quotes'); break
         case 'toggle-panel-analyses': togglePanel('analyses'); break
+        case 'toggle-ribbon': toggleRibbonRef.current(); break
+        case 'next-tab': useDocumentStore.getState().showAdjacentTab(1); break
+        case 'previous-tab': useDocumentStore.getState().showAdjacentTab(-1); break
         case 'close-active-tab': {
           // Cmd+W in the main window — close whichever document /
           // analysis / query-builder tab is currently viewed. Mirrors
@@ -1727,16 +1815,8 @@ function App() {
     queryStore
   ])
 
-  // Sync panel visibility to main process for View menu checkmarks.
-  // The "Queries" menu item now drives the merged Queries pane (which
-  // owns the Saved Queries sidebar + the live results), so its
-  // checkmark tracks !queryResultsClosed.
-  useEffect(() => {
-    window.api.updatePanelVisibility({ ...panelVisibility, queries: !queryResultsClosed })
-  }, [panelVisibility, queryResultsClosed])
-
   // Custom keyboard shortcuts for project-level operations.
-  // Native text undo/redo/selectAll is handled by Electron's native roles.
+  // Native text undo/redo/selectAll is handled by the menu's predefined items.
   // When no text input is focused, these shortcuts trigger project-level actions instead.
   useEffect(() => {
     const isTextInput = () => {
@@ -1750,6 +1830,21 @@ function App() {
     const inNoteEditor = () => !!(document.activeElement as HTMLElement | null)?.closest?.('[data-note-editor]')
     const handleKeydown = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey)) return
+      // The other standard pair for switching tabs (the View menu has
+      // Ctrl+Tab / Ctrl+Shift+Tab): Cmd+Shift+] / [ on macOS, as in
+      // Safari and Finder; Ctrl+PageDown / PageUp elsewhere.
+      const tabStep = isMac
+        ? (e.metaKey && e.shiftKey && !e.altKey && !e.ctrlKey
+            ? (e.code === 'BracketRight' ? 1 : e.code === 'BracketLeft' ? -1 : 0)
+            : 0)
+        : (e.ctrlKey && !e.shiftKey && !e.altKey
+            ? (e.key === 'PageDown' ? 1 : e.key === 'PageUp' ? -1 : 0)
+            : 0)
+      if (tabStep !== 0) {
+        e.preventDefault()
+        useDocumentStore.getState().showAdjacentTab(tabStep)
+        return
+      }
       if (e.key === 'a' && !isTextInput()) {
         if (activePanelRef.current === 'documents') {
           e.preventDefault()
@@ -1841,15 +1936,58 @@ function App() {
   // so the deletion sticks.
   useEffect(() => {
     const unsub = window.api.onMemoDelete((guid: string) => {
-      useMemoStore.getState().removeMemo(guid)
-      const rmStore = useRelationshipMapStore.getState()
-      for (const m of Object.values(rmStore.maps)) {
-        const nextElements = m.elements.filter((el) => !(el.kind === 'memo' && el.entityGuid === guid))
-        if (nextElements.length !== m.elements.length) rmStore.setElements(m.guid, nextElements)
-      }
+      deleteMemoEverywhere(guid)
       setTimeout(() => { saveProjectRef.current() }, 0)
     })
     return unsub
+  }, [])
+
+  // The Memos window's actions. Edits are refused with the checkout
+  // prompt while someone else has the project, as in the Saved Memos pane.
+  useEffect(() => {
+    const unsub = window.api.onMemosWindowAction((action, ...args) => {
+      const memo = (guid: unknown) => useMemoStore.getState().findMemo(String(guid))
+      if (action === 'show') {
+        const m = memo(args[0])
+        if (m) showMemoLocation(m)
+        return
+      }
+      if (checkoutLockedByNow()) {
+        useProjectStore.getState().promptCheckoutConflict()
+        return
+      }
+      if (action === 'edit') {
+        const m = memo(args[0])
+        if (m) openMemoEditor(m)
+      } else if (action === 'new') {
+        openMemoEditor({ guid: generateGuid(), type: 'project', title: '', content: '', createdDateTime: new Date().toISOString() }, true)
+      } else if (action === 'delete') {
+        for (const guid of (args[0] as string[]) ?? []) deleteMemoEverywhere(guid)
+        setTimeout(() => { saveProjectRef.current() }, 0)
+      }
+    })
+    return unsub
+  }, [])
+
+  // Keep the Memos window up to date (a no-op while it's closed): memos,
+  // and the names of what they're attached to, change from many places.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const push = () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => { timer = null; window.api.updateMemosWindow(memosWindowData()) }, 150)
+    }
+    const watch = <S, T>(store: { subscribe: (l: (s: S, p: S) => void) => () => void }, pick: (s: S) => T) =>
+      store.subscribe((s, p) => { if (pick(s) !== pick(p)) push() })
+    const unsubs = [
+      watch(useMemoStore, (s) => s.memos),
+      watch(useDocumentStore, (s) => s.sources),
+      watch(useDocumentStore, (s) => s.sourceContents),
+      watch(useQueryStore, (s) => s.savedQueries),
+      watch(useProjectStore, (s) => s.savedAnalyses),
+      watch(useProjectStore, (s) => s.checkoutMarker)
+    ]
+    return () => { unsubs.forEach((u) => u()); if (timer) clearTimeout(timer) }
   }, [])
 
   // Listen for analysis actions (save, run-query)
@@ -1939,11 +2077,23 @@ function App() {
         }
         useQueryStore.getState().setComplexQuery(scopedQuery)
       } else if (action === 'run-word-query') {
-        // Build a text search query for a word in specific documents
-        const [word, filteredGuids, scope] = args as [string, string[] | undefined, SurveyCellScopeArgs | undefined]
+        // Build a text search query for a word in specific documents,
+        // limited to coded passages, or to saved queries' results, when
+        // the tool counted those.
+        const [word, filteredGuids, scope, codes, queryGuids] = args as [string, string[] | undefined, SurveyCellScopeArgs | undefined, WordQueryCodes | undefined, string[] | undefined]
         const query: Query = {
           documentFilter: applySurveyScopeToFilter(filteredGuids && filteredGuids.length > 0 ? { sourceGuids: filteredGuids } : {}, scope),
-          codeCondition: { type: 'text', searchText: word, caseSensitive: false, wholeWord: true }
+          codeCondition: wordCondition(word, codes),
+          within: withinQueries(queryGuids)
+        }
+        useQueryStore.getState().setComplexQuery(query)
+      } else if (action === 'run-sentence-query') {
+        // The sentences containing both words (Word Combinations' associations).
+        const [word1, word2, filteredGuids, scope, codes, queryGuids] = args as [string, string, string[] | undefined, SurveyCellScopeArgs | undefined, WordQueryCodes | undefined, string[] | undefined]
+        const query: Query = {
+          documentFilter: applySurveyScopeToFilter(filteredGuids && filteredGuids.length > 0 ? { sourceGuids: filteredGuids } : {}, scope),
+          codeCondition: sentenceCondition(word1, word2, codes),
+          within: withinQueries(queryGuids)
         }
         useQueryStore.getState().setComplexQuery(query)
       } else if (action === 'open-document') {
@@ -2113,6 +2263,7 @@ function App() {
   // trap the user inside a window they asked to close.
   useEffect(() => {
     const unsub = window.api.onFlushAndClose(async () => {
+      flushViewPositions()
       const ps = useProjectStore.getState()
       if (ps.isDirty && ps.filePath) {
         const heartbeat = setInterval(() => window.api.sendFlushHeartbeat(), 1000)
@@ -2225,11 +2376,64 @@ function App() {
     return unsub
   }, [])
 
-  // Listen for codebook updates from the codebook window
+  // Listen for codebook updates from the codebook window. Actions from
+  // its right-click menu mirror the Codes pane's; each that changes the
+  // codes sends the Codebook its codes again so it shows the change.
   useEffect(() => {
     const unsub = window.api.onCodebookUpdate((action, ...args) => {
       const cs = useCodeStore.getState()
+      const lockedMutation = ['rename-code', 'recolor-code', 'add-child-code', 'move-code-to-top', 'delete-code'].includes(action)
+      if (lockedMutation && checkoutLockedByNow()) {
+        useProjectStore.getState().promptCheckoutConflict()
+        return
+      }
       switch (action) {
+        case 'rename-code': {
+          const [guid, name] = args
+          if (typeof name === 'string' && name.trim()) cs.renameCode(guid, name.trim())
+          sendCodebookData()
+          break
+        }
+        case 'recolor-code': {
+          const [guid, color] = args
+          cs.recolorCode(guid, color)
+          sendCodebookData()
+          break
+        }
+        case 'add-child-code': {
+          // As in the Codes pane: a "New Code" in the parent's colour,
+          // which the Codebook then opens for renaming.
+          const [parentGuid] = args
+          const parent = cs.findCode(parentGuid)
+          const color = parent?.color || codeColourPresetsFor(usePreferencesStore.getState())[0]
+          const guid = cs.addCode('New Code', color, parentGuid)
+          sendCodebookData(guid)
+          break
+        }
+        case 'move-code-to-top': {
+          const [guid] = args
+          cs.moveCode(guid, null)
+          sendCodebookData()
+          break
+        }
+        case 'delete-code': {
+          const [guid] = args
+          cs.removeCode(guid)
+          sendCodebookData()
+          break
+        }
+        case 'show-in-all-documents': {
+          const [codeGuid] = args
+          useQueryStore.getState().setComplexQuery({ documentFilter: {}, codeCondition: { type: 'code', codeGuid } })
+          break
+        }
+        case 'show-in-active-document': {
+          const [codeGuid] = args
+          const viewedGuid = useDocumentStore.getState().viewedDocumentGuid
+          if (!viewedGuid) break
+          useQueryStore.getState().setComplexQuery({ documentFilter: { sourceGuids: [viewedGuid] }, codeCondition: { type: 'code', codeGuid } })
+          break
+        }
         case 'save-code': {
           const [guid, name, color, description, hotkey] = args
           cs.renameCode(guid, name)
@@ -2302,6 +2506,10 @@ function App() {
         }
         case 'clear-query':
           useQueryStore.getState().clearQuery()
+          break
+        case 'close-panel':
+          // The pop-out's × closes the pane too, as the popped-in one's does.
+          setQueryResultsClosed(true)
           break
         case 'save-query': {
           const q = useQueryStore.getState().currentQuery
@@ -2507,6 +2715,120 @@ function App() {
     return unsub
   }, [])
 
+  // ── Ribbon (Toolbar Style "Ribbon") ── Every button runs the same
+  // action as its counterpart in the icon toolbar and its popovers.
+  const lockedReason = checkoutLockedBy ? checkoutLockedTitle(checkoutLockedBy) : undefined
+  const toolButton = (toolType: AnalysisToolType): RibbonButtonDef => {
+    const def = TOOL_REGISTRY[toolType]
+    return { id: toolType, label: def.label, title: def.description, icon: def.icon, onClick: () => openAnalysis(toolType) }
+  }
+  const panelButton = (id: PanelId | 'queries', label: string, icon: RibbonButtonDef['icon'], visible: boolean): RibbonButtonDef => ({
+    id: `panel-${id}`, label, icon, pressed: visible,
+    title: visible ? `Hide the ${label} pane` : `Show the ${label} pane`,
+    onClick: () => (id === 'queries' ? setQueryResultsClosed((prev) => !prev) : togglePanel(id))
+  })
+  const ribbonTabs: RibbonTabDef[] = [
+    {
+      id: 'home',
+      label: 'Home',
+      groups: [
+        {
+          label: 'Project',
+          buttons: [
+            {
+              id: 'project-details', label: 'Project Details', title: 'Project details',
+              glyph: <span className="ribbon-magnolia" aria-hidden style={{ WebkitMaskImage: `url("${magnoliaIconUrl}")`, maskImage: `url("${magnoliaIconUrl}")` }} />,
+              onClick: () => setShowProjectDetails(true)
+            },
+            { id: 'import', label: 'Import', title: 'Import documents', icon: faSquareArrowRightEnter, disabledReason: lockedReason, onClick: () => handleImportDocument() },
+            { id: 'merge', label: 'Merge', title: 'Merge a project into this one', icon: faGitMerge, iconStyle: { transform: 'scale(-1, -1)' }, onClick: () => handleMergeProject() },
+            {
+              id: 'preferences', label: 'Preferences', icon: faGear, badge: updateBadgeAvailable,
+              title: updateBadgeAvailable ? 'A new version is available — open Preferences → Updates' : 'Preferences',
+              onClick: () => {
+                if (updateBadgeAvailable) requestPreferencesCategory('updates')
+                useDocumentStore.getState().openToolTab(PREFERENCES_TAB_ID)
+              }
+            }
+          ]
+        },
+        {
+          label: 'Organise',
+          buttons: [
+            { id: 'codebook', label: 'Codebook', icon: faBook, onClick: () => openCodebook() },
+            { id: 'logbook', label: 'Logbook', icon: faNotebookPen, onClick: () => openLogbook() },
+            { id: 'memos', label: 'Memos', title: 'See every memo in the project', icon: PANE_ICONS.memos, onClick: () => openMemos() },
+            { id: 'tags', label: 'Tags', title: 'Manage tags', icon: faTags, onClick: () => setShowManageDocTags(true) }
+          ]
+        },
+        {
+          label: 'Query',
+          buttons: [
+            { id: 'query', label: 'Query', title: TOOL_REGISTRY.queryBuilder.description, icon: faMagnifyingGlass, onClick: () => openQueryBuilder() }
+          ]
+        }
+      ]
+    },
+    {
+      id: 'analyse',
+      label: 'Analyse',
+      groups: [
+        { label: 'Codes', buttons: (['codes-in-documents', 'framework-matrix', 'code-cooccurrences', 'code-orders', 'code-frequencies'] as AnalysisToolType[]).map(toolButton) },
+        { label: 'Queries and words', buttons: (['results-in-documents', 'word-frequencies', 'word-combinations'] as AnalysisToolType[]).map(toolButton) },
+        { label: 'Relationships and reports', buttons: (['relationship-map', 'reports'] as AnalysisToolType[]).map(toolButton) }
+      ]
+    },
+    {
+      id: 'view',
+      label: 'View',
+      groups: [
+        {
+          label: 'Panes',
+          buttons: [
+            panelButton('documents', 'Documents', PANE_ICONS.documents, panelVisibility.documents),
+            panelButton('codes', 'Codes', PANE_ICONS.codes, panelVisibility.codes),
+            panelButton('queries', 'Queries', PANE_ICONS.queries, !queryResultsClosed),
+            panelButton('memos', 'Saved Memos', PANE_ICONS.memos, panelVisibility.memos),
+            panelButton('quotes', 'Saved Quotes', PANE_ICONS.quotes, panelVisibility.quotes),
+            panelButton('analyses', 'Saved Analyses', PANE_ICONS.analyses, panelVisibility.analyses)
+          ]
+        }
+      ]
+    },
+    {
+      id: 'help',
+      label: 'Help',
+      groups: [
+        {
+          label: 'Magnolia',
+          buttons: [
+            { id: 'manual', label: 'Manual', title: "Open Magnolia's user manual in your browser", icon: HELP_ICONS.manual, onClick: () => window.open(MANUAL_URL, '_blank') },
+            { id: 'licence', label: 'Licence', title: 'Licence & Attributions', icon: HELP_ICONS.licence, onClick: () => setShowLicenceDialog(true) },
+            { id: 'donate', label: 'Donate', title: 'Magnolia is free to use, but costs me money to make. If it is useful, please consider donating to cover my costs.', icon: HELP_ICONS.donate, onClick: () => window.open(SPONSOR_URL, '_blank') }
+          ]
+        }
+      ]
+    }
+  ]
+  const ribbon = useRibbon(ribbonTabs)
+  const useRibbonToolbar = toolbarStyle === 'ribbon'
+  // The menu handler is registered above useRibbon, so it reaches the
+  // ribbon's (stable) toggle through this ref.
+  toggleRibbonRef.current = ribbon.toggleCollapsed
+
+  // Sync panel visibility to main process for View menu checkmarks.
+  // The "Queries" menu item now drives the merged Queries pane (which
+  // owns the Saved Queries sidebar + the live results), so its
+  // checkmark tracks !queryResultsClosed. "ribbon" drives View → Show
+  // Ribbon, and is left out (greying the item) with the Icons toolbar.
+  useEffect(() => {
+    window.api.updatePanelVisibility({
+      ...panelVisibility,
+      queries: !queryResultsClosed,
+      ...(useRibbonToolbar ? { ribbon: !ribbon.collapsed } : {})
+    })
+  }, [panelVisibility, queryResultsClosed, useRibbonToolbar, ribbon.collapsed])
+
   return (
     <div
       className="app-shell"
@@ -2544,7 +2866,7 @@ function App() {
           borderBottom: '1px solid var(--border-color)',
           background: 'var(--bg-secondary)',
           flexShrink: 0,
-          height: 54
+          height: useRibbonToolbar ? 40 : 54
         }}
       >
         {/* Left: the Magnolia icon followed by the open project's file
@@ -2562,7 +2884,9 @@ function App() {
             gap: 8
           }}
         >
-          <div
+          {/* With the ribbon, the logo is the Project Details button on
+              the Home tab instead. */}
+          {!useRibbonToolbar && <div
             aria-label="Magnolia"
             // Masked so the icon is themed to the toolbar's icon hue, like
             // the old wordmark. viewBox 42×49 (~0.857:1) → 21×24 fills the
@@ -2582,7 +2906,26 @@ function App() {
               maskPosition: 'center',
               pointerEvents: 'none'
             }}
-          />
+          />}
+          {useRibbonToolbar ? (
+            // With the ribbon, the Project Details button opens the
+            // project's details, so the name is plain text.
+            <span
+              style={{
+                color: 'var(--text-primary)',
+                fontSize: 13,
+                fontWeight: 500,
+                padding: '2px 6px',
+                maxWidth: 240,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                cursor: 'default'
+              }}
+            >
+              {projectStore.name}
+            </span>
+          ) : (
           <button
             type="button"
             className="app-toolbar-btn"
@@ -2614,6 +2957,7 @@ function App() {
           >
             {projectStore.name}
           </button>
+          )}
         </div>
 
         {/* Scrollable middle: every other toolbar option, between the
@@ -2621,6 +2965,11 @@ function App() {
             (right). Scrolls horizontally instead of overflowing and
             clipping/overlapping when the window is too narrow to fit
             everything — e.g. tiled or resized small (GitHub issue #15). */}
+        {useRibbonToolbar ? (
+          <div style={{ display: 'flex', alignItems: 'stretch', flex: '1 1 auto', minWidth: 0, height: '100%' }}>
+            <RibbonTabs ribbon={ribbon} />
+          </div>
+        ) : (
         <div style={{ display: 'flex', alignItems: 'center', flex: '1 1 auto', minWidth: 0, height: '100%' }}>
           {/* Scroll hint gutters: fixed-width slots flanking the scroll
               track (siblings, not overlays) so the chevron never sits on
@@ -2667,6 +3016,7 @@ function App() {
             { icon: faSquareArrowRightEnter, label: 'Import', action: () => handleImportDocument(), locks: true },
             { icon: faBook, label: 'Codebook', action: () => openCodebook() },
             { icon: faNotebookPen, label: 'Logbook', action: () => openLogbook() },
+            { icon: PANE_ICONS.memos, label: 'Memos', action: () => openMemos() },
             { icon: faTags, label: 'Tags', action: () => setShowManageDocTags(true) }
           ].map((item, idx) => {
             const itemLocked = !!(item as { locks?: boolean }).locks && !!checkoutLockedBy
@@ -2782,7 +3132,7 @@ function App() {
             }}
           >
             <Icon icon={faMagnifyingGlass} style={{ fontSize: 20 }} />
-            <span className="toolbar-label" style={{ fontSize: 9, whiteSpace: 'nowrap', fontWeight: 400, color: 'var(--text-secondary)', transition: 'color 0.12s' }}>Query</span>
+            <span className="toolbar-label" style={{ fontSize: 9, whiteSpace: 'nowrap', fontWeight: 400, transition: 'color 0.12s' }}>Query</span>
           </button>
 
           <ToolbarDivider />
@@ -2805,9 +3155,9 @@ function App() {
               { id: 'documents', label: 'Documents', visible: panelVisibility.documents },
               { id: 'codes', label: 'Codes', visible: panelVisibility.codes },
               { id: 'queries', label: 'Queries', visible: !queryResultsClosed },
-              { id: 'memos', label: 'Memos', visible: panelVisibility.memos },
-              { id: 'quotes', label: 'Quotes', visible: panelVisibility.quotes },
-              { id: 'analyses', label: 'Analyses', visible: panelVisibility.analyses },
+              { id: 'memos', label: 'Saved Memos', visible: panelVisibility.memos },
+              { id: 'quotes', label: 'Saved Quotes', visible: panelVisibility.quotes },
+              { id: 'analyses', label: 'Saved Analyses', visible: panelVisibility.analyses },
             ]}
             onToggle={(id) => {
               if (id === 'queries') setQueryResultsClosed((prev) => !prev)
@@ -2893,6 +3243,7 @@ function App() {
             <Icon icon={faChevronsRight} style={{ fontSize: 16 }} className="app-toolbar-scroll-hint" />
           </div>
         </div>
+        )}
 
         {/* Far right, pinned: Check Out / Check In, then window controls
             (minimise/maximise/close) on Windows and Linux — native traffic
@@ -2905,6 +3256,11 @@ function App() {
           <WindowControls />
         </div>
       </div>
+      {useRibbonToolbar && (
+        <div className="ribbon-host">
+          <RibbonBody ribbon={ribbon} />
+        </div>
+      )}
 
       <PanelGroup direction="vertical" className="app-main-panels" style={{ flex: 1 }}>
         <Panel defaultSize={queryResultsHidden ? 100 : 70} minSize={30}>
@@ -3172,7 +3528,6 @@ function App() {
 
       <ProjectDetailsDialog open={showProjectDetails} onClose={() => setShowProjectDetails(false)} />
       <LicenceDialog open={showLicenceDialog} onClose={() => setShowLicenceDialog(false)} />
-      <UpdateDialog info={updateInfo} onDismiss={() => setUpdateInfo(null)} />
       {/* !stealBackConflict guards against both rendering at once: they're
           set independently (markDirty's edit-time block calls
           promptCheckoutConflict; a save's own conflict check sets
@@ -3260,7 +3615,7 @@ function App() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
               <span style={{ fontSize: 13, fontWeight: 500 }}>{loadProgress.stage}</span>
               {loadProgress.total > 0 && (
-                <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                <span style={{ fontSize: 11 }}>
                   {loadProgress.current} / {loadProgress.total}
                 </span>
               )}
@@ -3310,6 +3665,7 @@ function App() {
 
       {surveyImportQueue.length > 0 && (
         <SurveyImportDialog
+          key={surveyImportQueue[0].id}
           initial={surveyImportQueue[0].parsed}
           suggestedName={surveyImportQueue[0].suggestedName}
           rawCsv={surveyImportQueue[0].csv}

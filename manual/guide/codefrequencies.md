@@ -6,19 +6,19 @@ Where [Codes in Documents](/guide/codesindocuments) counts *how many times* a co
 
 **To open Code Frequencies:**
 
-1. Click the `Analyse` button in the toolbar.
+1. Click the `Analyse` tab in the ribbon.
 
-2. Choose `Code Frequencies`.
+2. Click `Code Frequencies`.
 
 The tool contains:
 - The [Document Selector](/guide/documentselector)
-- The [Group By](/guide/grouping) function
+- The [Grouped by](/guide/grouping) function
 
 ## Adding codes
 
 **To add codes to the table:**
 
-1. Drag the codes from the Code Browser into the `Frequency Grid` box.
+1. Drag the codes from the Code Browser into the `Results` box.
 
 2. Each code appears as a row in the table, and a chart appears beneath it.
 
@@ -66,8 +66,8 @@ Click any cell, or any bar in the chart, to see the selections coded with that c
 
 ## Saving and exporting
 
-You can save the analysis by clicking `Save Analysis`. It appears in the Analyses Panel. If you make changes later, click `Update Analysis` to save them.
+You can save the analysis by clicking `Save Analysis`. It appears in the Saved Analyses Panel. If you make changes later, click `Update Analysis` to save them.
 
 You can export the table as a spreadsheet by clicking `Export CSV`, and the chart as an image by clicking `Export SVG`.
 
-You can also add the analysis to a [Report](/guide/reports) by dragging it from the Analyses Panel into the report.
+You can also add the analysis to a [Report](/guide/reports) by dragging it from the Saved Analyses Panel into the report.

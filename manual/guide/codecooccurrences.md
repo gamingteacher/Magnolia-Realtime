@@ -8,9 +8,9 @@ Two codes occur together when:
 
 **To open Code Co-Occurrences:**
 
-1. Click the `Analyse` button in the toolbar.
+1. Click the `Analyse` tab in the ribbon.
 
-2. Choose `Code Co-Occurrences`.
+2. Click `Code Co-Occurrences`.
 
 The tool contains the [Document Selector](/guide/documentselector).
 
@@ -21,7 +21,7 @@ The tool contains the [Document Selector](/guide/documentselector).
 1. Drag the codes from the Code Browser into either:
    1. The `Drop codes here for rows` box, to add them as rows;
    2. The `Drop codes here for columns` box, to add them as columns; or,
-   3. Anywhere else in the `Co-Occurrence Grid`, to add them as both rows and columns.
+   3. Anywhere else in the `Results` box, to add them as both rows and columns.
 
 2. The table fills in as you add codes.
 
@@ -74,8 +74,8 @@ Click any cell with a count above zero to see where the two codes overlap. The o
 
 ## Saving and exporting
 
-You can save the analysis by clicking `Save Analysis`. It appears in the Analyses Panel. If you make changes later, click `Update Analysis` to save them.
+You can save the analysis by clicking `Save Analysis`. It appears in the Saved Analyses Panel. If you make changes later, click `Update Analysis` to save them.
 
 You can export the table as a spreadsheet by clicking `Export CSV`.
 
-You can also add the analysis to a [Report](/guide/reports) by dragging it from the Analyses Panel into the report.
+You can also add the analysis to a [Report](/guide/reports) by dragging it from the Saved Analyses Panel into the report.

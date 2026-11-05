@@ -6,13 +6,13 @@ Think of it as a timeline for each document. It is particularly useful for inter
 
 **To open Code Orders:**
 
-1. Click the `Analyse` button in the toolbar.
+1. Click the `Analyse` tab in the ribbon.
 
-2. Choose `Code Orders`.
+2. Click `Code Orders`.
 
 The tool contains:
 - The [Document Selector](/guide/documentselector)
-- The [Group By](/guide/grouping) function
+- The [Grouped by](/guide/grouping) function
 
 ## Adding codes
 
@@ -33,7 +33,7 @@ Each row is one document. The further right a block sits, the later in the docum
      <figcaption>Four codes across every document in the project.</figcaption>
 </figure>
 
-If you have used [Group By](/guide/grouping) to group documents by tag, the tagged documents are placed end to end on a single strip.
+If you have used [Grouped by](/guide/grouping) to group documents by tag, the tagged documents are placed end to end on a single strip.
 
 <figure>
      <img src="./images/CodeOrdersGrouped.png" alt="The Code Orders visualisation, grouped by tag.">
@@ -48,8 +48,8 @@ Click a block to see the selections coded with that code in that document. The s
 
 ## Saving and exporting
 
-You can save the analysis by clicking `Save Analysis`. It appears in the Analyses Panel. If you make changes later, click `Update Analysis` to save them.
+You can save the analysis by clicking `Save Analysis`. It appears in the Saved Analyses Panel. If you make changes later, click `Update Analysis` to save them.
 
 You can export the visualisation as an image by clicking `Export SVG`.
 
-You can also add the analysis to a [Report](/guide/reports) by dragging it from the Analyses Panel into the report.
+You can also add the analysis to a [Report](/guide/reports) by dragging it from the Saved Analyses Panel into the report.

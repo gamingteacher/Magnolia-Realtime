@@ -384,6 +384,9 @@ export type CodeCondition =
   | { type: 'outside'; condition1: CodeCondition; condition2: CodeCondition }
   | { type: 'before'; condition1: CodeCondition; condition2: CodeCondition }
   | { type: 'followedBy'; condition1: CodeCondition; condition2: CodeCondition }
+  /** The sentences containing both a Condition 1 and a Condition 2 selection.
+   *  Only valid as the whole query: its sentences can't feed another operator. */
+  | { type: 'sameSentence'; condition1: CodeCondition; condition2: CodeCondition }
 
 export interface Query {
   documentFilter: {
@@ -413,6 +416,11 @@ export interface Query {
     graph?: { nodes: any[]; conns: any[] }
   }
   codeCondition: CodeCondition
+  /** Only keep text matches that fall inside the results of these queries
+   *  (each run with its own document filter). Set by the word tools'
+   *  searches when they count words in query results; the Query Builder
+   *  never authors it. */
+  within?: Query[]
 }
 
 /** Survey-cell scope carried from an analysis result cell-click into the
@@ -481,6 +489,23 @@ export interface QueryBuilderInitData {
 /** "Newer version available" nudge state, computed in the main process by
  *  comparing this build against the latest published GitHub release. Drives the
  *  toolbar wordmark badge and the Updates pane on all builds. */
+/** What the software update window shows; see src-tauri/src/updater.rs. */
+export type UpdateView =
+  | { state: 'checking' }
+  | { state: 'downloading'; version: string; received: number; total: number | null }
+  | {
+      state: 'available'
+      version: string
+      currentVersion: string
+      /** Release day, YYYY-MM-DD. */
+      releaseDate: string | null
+      releaseNotes: string
+    }
+  | { state: 'ready'; version: string }
+  | { state: 'installing'; version: string | null }
+  | { state: 'up-to-date'; version: string }
+  | { state: 'error'; title: string; message: string }
+
 export interface UpdateBadgeState {
   available: boolean
   latestVersion: string | null
@@ -516,7 +541,7 @@ export interface EditorInfo {
 }
 
 // IPC API exposed to renderer
-export interface ElectronAPI {
+export interface MagnoliaAPI {
   syncLoadState: (key: string) => Promise<any | null>
   syncSaveState: (key: string, state: unknown) => Promise<boolean>
   syncDeleteState: (key: string) => Promise<boolean>
@@ -673,6 +698,18 @@ export interface ElectronAPI {
   onLogbookData: (callback: (data: LogbookInitData) => void) => () => void
   sendLogbookUpdate: (action: string, ...args: any[]) => void
   onLogbookUpdate: (callback: (action: string, ...args: any[]) => void) => () => void
+  // Memos window
+  openMemosWindow: (data: MemosWindowData) => void
+  /** Refreshes the Memos window if it is open. */
+  updateMemosWindow: (data: MemosWindowData) => void
+  getMemosWindowData: () => Promise<MemosWindowData>
+  onMemosWindowData: (callback: (data: MemosWindowData) => void) => () => void
+  /** 'edit' (guid), 'show' (guid), 'new' or 'delete' (guids): the main
+   *  window acts on them, prompting first while the project is checked out. */
+  sendMemosWindowAction: (action: MemosWindowAction, ...args: any[]) => void
+  onMemosWindowAction: (callback: (action: MemosWindowAction, ...args: any[]) => void) => () => void
+  /** Brings the main project window to the front. */
+  focusMainWindow: () => void
   // Analysis actions — round-trip through main so inline analysis
   // tools can hand work back to the main App (save-analysis,
   // run-query, open-memo, etc.).
@@ -687,13 +724,15 @@ export interface ElectronAPI {
   closeWindow: () => void
   isWindowMaximized: () => Promise<boolean>
   onWindowMaximizedChanged: (callback: (isMax: boolean) => void) => () => void
-  // Auto-update dialog (Sparkle-style prompt driven by the renderer)
-  onUpdateAvailable: (
-    callback: (info: { version: string; currentVersion: string; releaseDate: string | null; releaseNotes: string }) => void
-  ) => () => void
+  // Software update window (Sparkle-style; opened and driven by the backend)
+  getUpdateView: () => Promise<UpdateView | null>
+  onUpdateView: (callback: (view: UpdateView) => void) => () => void
   installUpdate: () => void
   skipUpdateVersion: (version: string) => void
-  remindUpdateLater: () => void
+  /** Remind Me Later / Cancel / OK: close the update window. */
+  dismissUpdate: () => void
+  /** Resize the update window by `delta` px so its status panel fits. */
+  fitUpdateWindow: (delta: number) => void
   getAppVersion: () => Promise<string>
   checkForUpdates: () => void
   onUpdateStatus: (
@@ -748,6 +787,10 @@ export interface ElectronAPI {
 
 export interface CodebookInitData {
   codes: Code[]
+  /** Coded segments per code guid, for the counts in the code list. */
+  codeCounts?: Record<string, number>
+  /** A code for the Codebook to start renaming (one just added). */
+  renameGuid?: string
   theme: string
 }
 
@@ -834,6 +877,18 @@ export interface MemoEditInitData {
   isNew?: boolean
 }
 
+export type MemosWindowAction = 'edit' | 'show' | 'new' | 'delete'
+
+export interface MemosWindowData {
+  memos: Memo[]
+  /** Where each memo is attached, by memo guid (see utils/memo-places.ts). */
+  places: Record<string, import('../utils/memo-places').MemoPlace>
+  /** Who has the project checked out, when it isn't this user: edits are
+   *  then refused with a prompt in the main window. */
+  lockedBy: string | null
+  theme: string
+}
+
 export interface LogbookEntry {
   guid: string
   title: string
@@ -891,6 +946,7 @@ export type AnalysisToolType =
   | 'code-frequencies'
   | 'code-orders'
   | 'word-frequencies'
+  | 'word-combinations'
   | 'relationship-map'
   | 'reports'
 
@@ -966,6 +1022,6 @@ export interface SavedAnalysis {
 
 declare global {
   interface Window {
-    api: ElectronAPI
+    api: MagnoliaAPI
   }
 }

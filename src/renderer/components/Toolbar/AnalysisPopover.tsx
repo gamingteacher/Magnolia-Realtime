@@ -25,6 +25,7 @@ import { createPortal } from 'react-dom'
 import { Icon, faLightbulb, type IconComponent } from '../Icon'
 import type { AnalysisToolType } from '../../models/types'
 import { TOOL_REGISTRY } from '../../utils/tool-registry'
+import { PALETTE_ICON_CLASS } from '../../utils/icon-tint'
 
 /** Tools the popover surfaces, in the order they appear in the grid.
  *  Query Builder is intentionally NOT in this list — it stays on the
@@ -37,6 +38,7 @@ const ANALYSIS_TOOL_ORDER: AnalysisToolType[] = [
   'code-orders',
   'code-frequencies',
   'word-frequencies',
+  'word-combinations',
   'relationship-map',
   'reports'
 ]
@@ -173,7 +175,7 @@ export function AnalysisPopover({ onSelect }: Props) {
                   className="analysis-popover-tile"
                   onClick={() => handleSelect(toolType)}
                 >
-                  <Icon icon={ToolIcon} style={{ fontSize: 14 }} />
+                  <Icon icon={ToolIcon} className={PALETTE_ICON_CLASS} style={{ fontSize: 14 }} />
                   <div className="analysis-popover-tile-name">{def.label}</div>
                   {def.description && (
                     <div className="analysis-popover-tile-desc">{def.description}</div>

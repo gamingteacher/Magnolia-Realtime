@@ -506,13 +506,14 @@ export function QueryResultViewer({ onSaveQuery, onEditQuery, queryName, onCodeA
                 // wouldn't navigate to anything in the raw CSV view,
                 // and the SurveyViewer ignores the doc-store
                 // scrollTarget — it has its own.
-                if (selection?.surveyCell) {
+                const surveyCell = result.surveyCell ?? selection?.surveyCell
+                if (surveyCell) {
                   const svs = useSurveyViewStore.getState()
-                  svs.setView(result.sourceGuid, 'respondent', selection.surveyCell.respondentId)
+                  svs.setView(result.sourceGuid, 'respondent', surveyCell.respondentId)
                   svs.setScrollTarget({
                     surveyGuid: result.sourceGuid,
-                    respondentId: selection.surveyCell.respondentId,
-                    questionId: selection.surveyCell.questionId
+                    respondentId: surveyCell.respondentId,
+                    questionId: surveyCell.questionId
                   })
                 }
                 viewDocumentAt(
@@ -544,9 +545,9 @@ export function QueryResultViewer({ onSaveQuery, onEditQuery, queryName, onCodeA
             <Panel defaultSize={sidebarDefaultSize} minSize={sidebarMinSize} maxSize={sidebarMaxSize}>
               {sidebar}
             </Panel>
-            {/* The class on this handle is read by the Granola theme
+            {/* The class on this handle is read by the Magnolia themes'
                 override so the divider stays visible inside the
-                Queries panel even though the global Granola rule
+                Queries panel even though their global rule
                 hides every other resize handle (to preserve the
                 floating-card look). */}
             <PanelResizeHandle className="queries-sidebar-divider" style={{ width: 1, background: 'var(--border-color)', cursor: 'col-resize' }} />

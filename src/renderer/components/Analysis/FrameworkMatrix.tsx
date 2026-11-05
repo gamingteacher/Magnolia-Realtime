@@ -36,7 +36,7 @@ import {
   type IconComponent
 } from '../Icon'
 import { sourceTypeFromFilename } from '../../utils/format-registry'
-import { useIconTint, iconTintKindForSourceType, type IconTintKind } from '../../utils/icon-tint'
+import { useIconTint, iconTintKindForSourceType, PALETTE_ICON_CLASS, type IconTintKind } from '../../utils/icon-tint'
 import { toCsv } from './analysis-helpers'
 import { parseGroupByDrop } from './group-by'
 import { parseQuestionDrop, parseRespondentDrop } from './survey-grouping'
@@ -544,7 +544,7 @@ export function FrameworkMatrix({ data: propData, savedConfig, inTab }: Props) {
       </div>
 
       {showSaveDialog && (
-        <div className="modal-overlay" onClick={() => setShowSaveDialog(false)}>
+        <div className="modal-overlay">
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h2>Save Analysis</h2>
             <input
@@ -670,7 +670,7 @@ export function FrameworkMatrix({ data: propData, savedConfig, inTab }: Props) {
                       )}
                       {(() => {
                         const ri = rowIcon(row)
-                        return <Icon icon={ri.icon} style={{ fontSize: 12, width: 13, color: 'var(--text-muted)', flexShrink: 0, ...(ri.tint ? tint(ri.tint) : {}) }} />
+                        return <Icon className={PALETTE_ICON_CLASS} icon={ri.icon} style={{ fontSize: 12, width: 13, color: 'var(--text-muted)', flexShrink: 0, ...(ri.tint ? tint(ri.tint) : {}) }} />
                       })()}
                       <span
                         title={row.detail ? `${row.label} (${row.detail})` : row.label}

@@ -87,8 +87,9 @@ function liveResolveFilter(df: Query['documentFilter']): {
 }
 
 /** Run a query against current data with the document filter re-resolved
- *  live (see liveResolveFilter). */
-function runQueryLive(query: Query): { results: QueryResult[]; missingDocuments: string[] } {
+ *  live (see liveResolveFilter). Everything that runs a saved query goes
+ *  through here, so a query finds the same results wherever it's used. */
+export function runQueryLive(query: Query): { results: QueryResult[]; missingDocuments: string[] } {
   const docState = useDocumentStore.getState()
   const { documentFilter, noDocs } = liveResolveFilter(query.documentFilter)
   // "Missing documents" only applies to frozen (graph-less) filters. A
@@ -102,7 +103,7 @@ function runQueryLive(query: Query): { results: QueryResult[]; missingDocuments:
   const results = noDocs
     ? []
     : executeQuery(
-        { ...query, documentFilter },
+        { ...query, documentFilter, within: liveWithin(query.within) },
         docState.sources,
         docState.sourceContents,
         useCodeStore.getState().flatCodes(),
@@ -113,6 +114,19 @@ function runQueryLive(query: Query): { results: QueryResult[]; missingDocuments:
   return { results, missingDocuments }
 }
 
+/** A query's `within` queries with their document filters resolved live.
+ *  One whose filter now matches no documents has no results, so it drops
+ *  out (left in, its empty filter would mean every document). */
+function liveWithin(within: Query[] | undefined): Query[] | undefined {
+  if (!within) return undefined
+  const out: Query[] = []
+  for (const q of within) {
+    const { documentFilter, noDocs } = liveResolveFilter(q.documentFilter)
+    if (!noDocs) out.push({ ...q, documentFilter })
+  }
+  return out
+}
+
 /** What a query actually executes on: the code condition plus the
  *  live-resolved document filter, minus the document graph itself — its
  *  node positions change whenever the user lays out the builder canvas,
@@ -120,7 +134,11 @@ function runQueryLive(query: Query): { results: QueryResult[]; missingDocuments:
 function executionKey(query: Query): string {
   const { documentFilter, noDocs } = liveResolveFilter(query.documentFilter)
   const { graph: _graph, ...filter } = documentFilter
-  return JSON.stringify({ codeCondition: query.codeCondition, filter, noDocs })
+  const within = liveWithin(query.within)?.map((q) => {
+    const { graph: _g, ...f } = q.documentFilter
+    return { codeCondition: q.codeCondition, filter: f }
+  })
+  return JSON.stringify({ codeCondition: query.codeCondition, filter, noDocs, within })
 }
 
 /** executionKey of the latest scheduled run; null once cleared. */

@@ -3,11 +3,11 @@ import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
 import { useDocumentStore, surveyEntityKey, parseSurveyEntityKey, type DocumentFolder } from '../../stores/document-store'
 import { useTagStore } from '../../stores/tag-store'
 import { Icon, faFolder, faFolderPlus, faFile, faFileAlt, faTag, faTags, faChevronDown, faChevronRight, faXmark, faUpRightFromSquare, faDownLeftAndUpRightToCenter, faHeadphones, faVideo, faImage, faPlus, faMagnifyingGlass, faNotebookPen, faStickyNote, SURVEY_ICON, SURVEY_RESPONDENT_ICON, SURVEY_QUESTION_ICON } from '../Icon'
-import type { TextSource, TagCategory, TagCategoryType, SurveyFormatData } from '../../models/types'
+import type { TextSource, TagCategory, TagCategoryType, SurveyFormatData, SurveyEntityRef } from '../../models/types'
 import { toolColors } from '../../utils/tool-colors'
 import { sourceTypeFromExtension, sourceTypeFromFilename } from '../../utils/format-registry'
 import { useClampedMenuPosition } from '../../utils/use-clamped-menu-position'
-import { useIconTint, iconTintKindForSourceType } from '../../utils/icon-tint'
+import { useIconTint, iconTintKindForSourceType, PALETTE_ICON_CLASS } from '../../utils/icon-tint'
 import { sortTagsForCategory, sortListOptions } from '../../utils/sort-tags'
 import { useSurveyViewStore } from '../../stores/survey-view-store'
 import { buildCellText } from '../../utils/survey/cell-text'
@@ -136,7 +136,7 @@ function FolderItem({
   onStopEditingDoc: () => void
   getTagsForDocument: (guid: string) => { guid: string; name: string }[]
   onTagDrop: (tagGuids: string[], sourceGuid: string) => void
-  onTagCountClick: (sourceGuid: string, anchor: DOMRect) => void
+  onTagCountClick: (target: TagDialogTarget, anchor: DOMRect) => void
   onReorderDoc: (draggedGuids: string[], siblingGuid: string, position: 'before' | 'after') => void
   onViewSurveyChild: (
     surveyGuid: string,
@@ -284,7 +284,7 @@ function FolderItem({
         onContextMenu={(e) => onContextMenuFolder(e, folder.guid)}
       >
         <Icon icon={effectiveExpanded ? faChevronDown : faChevronRight} style={{ fontSize: 9, flexShrink: 0, width: 10, textAlign: 'center', opacity: 0.6 }} />
-        <Icon icon={notebook ? faNotebookPen : faFolder} style={{ fontSize: 13, flexShrink: 0, width: 16, textAlign: 'center', opacity: 0.75, color: 'var(--text-muted)', ...tint('folder') }} />
+        <Icon className={PALETTE_ICON_CLASS} icon={notebook ? faNotebookPen : faFolder} style={{ fontSize: 13, flexShrink: 0, width: 16, textAlign: 'center', opacity: 0.75, color: 'var(--text-muted)', ...tint('folder') }} />
         <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {folder.name}
         </span>
@@ -353,6 +353,7 @@ function FolderItem({
                 onContextMenuSurveyChild={onContextMenuSurveyChild}
                 selectedSurveyEntities={selectedSurveyEntities}
                 onToggleSurveyEntity={onToggleSurveyEntity}
+                onTagCountClick={onTagCountClick}
               />
             ) : (
               <DocItem
@@ -409,7 +410,7 @@ function DocItem({
   onStopEditing: () => void
   getTagsForDocument: (guid: string) => { guid: string; name: string }[]
   onTagDrop: (tagGuids: string[], sourceGuid: string) => void
-  onTagCountClick: (sourceGuid: string, anchor: DOMRect) => void
+  onTagCountClick: (target: TagDialogTarget, anchor: DOMRect) => void
   onReorder: (draggedGuids: string[], siblingGuid: string, position: 'before' | 'after') => void
 
 }) {
@@ -586,7 +587,7 @@ function DocItem({
           }}
         />
       )}
-      <Icon icon={iconForSource(source)} style={{ fontSize: 13, opacity: 0.75, flexShrink: 0, width: 16, textAlign: 'center', color: 'var(--text-muted)', ...tint(iconTintKindForSourceType(resolvedSourceType(source))) }} />
+      <Icon className={PALETTE_ICON_CLASS} icon={iconForSource(source)} style={{ fontSize: 13, opacity: 0.75, flexShrink: 0, width: 16, textAlign: 'center', color: 'var(--text-muted)', ...tint(iconTintKindForSourceType(resolvedSourceType(source))) }} />
       <div style={{ flex: 1, minWidth: 0 }}>
         {editing ? (
           <input
@@ -613,7 +614,7 @@ function DocItem({
           <NameWithTags
             name={source.name}
             tags={docTags}
-            onTagCountClick={(anchor) => onTagCountClick(source.guid, anchor)}
+            onTagCountClick={(anchor) => onTagCountClick({ kind: 'document', sourceGuid: source.guid }, anchor)}
           />
         )}
       </div>
@@ -621,16 +622,16 @@ function DocItem({
   )
 }
 
-/** A document's name with a tag-count chip on the same line, so a
- *  tagged row is no taller than an untagged one. The tag names are in
- *  the chip's tooltip; clicking it opens the document's tag menu. */
+/** A name with a tag-count chip on the same line, so a tagged row is no
+ *  taller than an untagged one. Used for documents, surveys, and survey
+ *  respondents and questions alike. */
 function NameWithTags({
   name,
   tags,
   onTagCountClick
 }: {
   name: string
-  tags: { guid: string; name: string }[]
+  tags: { guid: string; name: string; value?: string }[]
   onTagCountClick: (anchor: DOMRect) => void
 }) {
   return (
@@ -647,24 +648,34 @@ function NameWithTags({
       >
         {name}
       </div>
-      {tags.length > 0 && (
-        <span
-          className="tag-count-chip"
-          role="button"
-          title={tags.map((t) => t.name).join(', ')}
-          // Don't let the row treat the click as select / open / drag.
-          onMouseDown={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.stopPropagation()
-            onTagCountClick(e.currentTarget.getBoundingClientRect())
-          }}
-          onDoubleClick={(e) => e.stopPropagation()}
-        >
-          <Icon icon={faTag} style={{ fontSize: 9 }} />
-          {tags.length}
-        </span>
-      )}
+      <TagCountChip tags={tags} onClick={onTagCountClick} />
     </div>
+  )
+}
+
+/** How many tags something has. The tag names are in its tooltip;
+ *  clicking it opens the tag menu. Nothing when there are no tags. */
+function TagCountChip({ tags, onClick }: {
+  tags: { guid: string; name: string; value?: string }[]
+  onClick: (anchor: DOMRect) => void
+}) {
+  if (tags.length === 0) return null
+  return (
+    <span
+      className="tag-count-chip"
+      role="button"
+      title={tags.map((t) => t.value || t.name).join(', ')}
+      // Don't let the row treat the click as select / open / drag.
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation()
+        onClick(e.currentTarget.getBoundingClientRect())
+      }}
+      onDoubleClick={(e) => e.stopPropagation()}
+    >
+      <Icon icon={faTag} style={{ fontSize: 9 }} />
+      {tags.length}
+    </span>
   )
 }
 
@@ -726,7 +737,8 @@ function SurveyItem({
   onViewSurveyChild,
   onContextMenuSurveyChild,
   selectedSurveyEntities,
-  onToggleSurveyEntity
+  onToggleSurveyEntity,
+  onTagCountClick
 }: {
   source: TextSource
   viewedGuid: string | null
@@ -751,6 +763,7 @@ function SurveyItem({
   ) => void
   selectedSurveyEntities: Set<string>
   onToggleSurveyEntity: (sourceGuid: string, kind: 'respondent' | 'question', id: string) => void
+  onTagCountClick: (target: TagDialogTarget, anchor: DOMRect) => void
 }) {
   const tint = useIconTint()
   const [respondentsOpen, setRespondentsOpen] = useState(false)
@@ -861,25 +874,7 @@ function SurveyItem({
     minWidth: 0
   })
 
-  const renderChips = (chipTags: typeof allTags) =>
-    chipTags.length > 0 ? (
-      <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap', marginTop: 2 }}>
-        {chipTags.map((tag) => (
-          <span
-            key={tag.guid}
-            style={{
-              fontSize: 10,
-              background: 'var(--bg-tertiary)',
-              borderRadius: 3,
-              padding: '1px 5px',
-              color: 'var(--text-secondary)'
-            }}
-          >
-            {tag.value || tag.name}
-          </span>
-        ))}
-      </div>
-    ) : null
+  const surveyTags = allTags.filter((t) => t.memberSourceGuids.includes(source.guid))
 
   return (
     <div>
@@ -938,7 +933,7 @@ function SurveyItem({
         {/* No chevron on the survey root — surveys are always
             expanded, so the survey icon aligns with peer DocItems
             at the same depth. */}
-        <Icon icon={SURVEY_ICON} style={{ fontSize: 14, opacity: 0.85, flexShrink: 0, width: 16, color: 'var(--text-muted)', ...tint('survey') }} />
+        <Icon className={PALETTE_ICON_CLASS} icon={SURVEY_ICON} style={{ fontSize: 14, opacity: 0.85, flexShrink: 0, width: 16, color: 'var(--text-muted)', ...tint('survey') }} />
         <div style={{ flex: 1, minWidth: 0 }}>
           {editing ? (
             <input
@@ -962,9 +957,11 @@ function SurveyItem({
               style={{ width: '100%', padding: '1px 4px', fontSize: 'var(--font-size-sm)' }}
             />
           ) : (
-            <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {source.name}
-            </div>
+            <NameWithTags
+              name={source.name}
+              tags={surveyTags}
+              onTagCountClick={(anchor) => onTagCountClick({ kind: 'document', sourceGuid: source.guid }, anchor)}
+            />
           )}
         </div>
       </div>
@@ -972,7 +969,7 @@ function SurveyItem({
       {survey && (
         <>
           {/* Respondents category. Draggable onto an analysis tool's
-              "Group by" box to cluster the survey's results by
+              "Grouped by" box to cluster the survey's results by
               respondent (the RESPONDENTS_GROUP_MIME payload is the
               survey's guid). */}
           <div
@@ -984,7 +981,7 @@ function SurveyItem({
               e.dataTransfer.setData('text/plain', 'Respondents')
             }}
             onClick={() => setRespondentsOpen(!respondentsOpen)}
-            title="Drag onto an analysis tool's Group by box to group results by respondent"
+            title="Drag onto an analysis tool's Grouped by box to group results by respondent"
           >
             <span style={{ width: 12, display: 'inline-flex', justifyContent: 'center', flexShrink: 0 }}>
               <Icon icon={respondentsOpen ? faChevronDown : faChevronRight} style={{ fontSize: 9, color: 'var(--text-muted)' }} />
@@ -1061,12 +1058,13 @@ function SurveyItem({
                   ) : (
                     <span style={{ width: 12, flexShrink: 0 }} />
                   )}
-                  <Icon icon={SURVEY_RESPONDENT_ICON} style={{ fontSize: 13, color: 'var(--text-muted)', flexShrink: 0, width: 14, ...tint('respondent') }} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-primary)' }}>
-                      {r.displayName}
-                    </div>
-                    {renderChips(tagsForRespondent(r.id))}
+                  <Icon className={PALETTE_ICON_CLASS} icon={SURVEY_RESPONDENT_ICON} style={{ fontSize: 13, color: 'var(--text-muted)', flexShrink: 0, width: 14, ...tint('respondent') }} />
+                  <div style={{ flex: 1, minWidth: 0, color: 'var(--text-primary)' }}>
+                    <NameWithTags
+                      name={r.displayName}
+                      tags={tagsForRespondent(r.id)}
+                      onTagCountClick={(anchor) => onTagCountClick({ kind: 'respondent', sourceGuid: source.guid, id: r.id, label: r.displayName }, anchor)}
+                    />
                   </div>
                 </div>
                 {/* Cell rows — one per non-empty answer. Each is its
@@ -1173,15 +1171,16 @@ function SurveyItem({
                 title={q.text}
               >
                 <span style={{ width: 12, flexShrink: 0 }} />
-                <Icon icon={SURVEY_QUESTION_ICON} style={{ fontSize: 13, color: 'var(--text-muted)', flexShrink: 0, width: 14, ...tint('question') }} />
+                <Icon className={PALETTE_ICON_CLASS} icon={SURVEY_QUESTION_ICON} style={{ fontSize: 13, color: 'var(--text-muted)', flexShrink: 0, width: 14, ...tint('question') }} />
                 <span style={{ flexShrink: 0, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums', marginRight: 2, minWidth: 14 }}>
                   {i + 1}
                 </span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-primary)' }}>
-                    {q.text}
-                  </div>
-                  {renderChips(tagsForQuestion(q.id))}
+                <div style={{ flex: 1, minWidth: 0, color: 'var(--text-primary)' }}>
+                  <NameWithTags
+                    name={q.text}
+                    tags={tagsForQuestion(q.id)}
+                    onTagCountClick={(anchor) => onTagCountClick({ kind: 'question', sourceGuid: source.guid, id: q.id, label: q.text }, anchor)}
+                  />
                 </div>
               </div>
             )
@@ -1377,6 +1376,20 @@ type TagDialogTarget =
   | { kind: 'document'; sourceGuid: string }
   | { kind: 'respondent'; sourceGuid: string; id: string; label: string }
   | { kind: 'question'; sourceGuid: string; id: string; label: string }
+
+function tagTargetKey(t: TagDialogTarget): string {
+  return t.kind === 'document' ? `document:${t.sourceGuid}` : `${t.kind}:${t.sourceGuid}:${t.id}`
+}
+
+/** Whether a tag is applied to the document, respondent or question. */
+function tagAppliesTo(
+  tag: { memberSourceGuids: string[]; memberSurveyRespondents?: SurveyEntityRef[]; memberSurveyQuestions?: SurveyEntityRef[] },
+  t: TagDialogTarget
+): boolean {
+  if (t.kind === 'respondent') return (tag.memberSurveyRespondents ?? []).some((m) => m.sourceGuid === t.sourceGuid && m.id === t.id)
+  if (t.kind === 'question') return (tag.memberSurveyQuestions ?? []).some((m) => m.sourceGuid === t.sourceGuid && m.id === t.id)
+  return tag.memberSourceGuids.includes(t.sourceGuid)
+}
 
 function ApplyDocumentTagsDialog({
   title,
@@ -2035,12 +2048,8 @@ function ManageDocumentTagsDialog({
 
         {/* ── Edit list options sub-dialog ── */}
         {editingListCat && (
-          <div
-            className="modal-overlay"
-            onClick={() => setEditingListCat(null)}
-            style={{ position: 'fixed' }}
-          >
-            <div className="modal" onClick={(e) => e.stopPropagation()} style={{ minWidth: 350 }}>
+          <div className="modal-overlay" style={{ position: 'fixed' }}>
+            <div className="modal" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => { if (e.key === 'Escape') setEditingListCat(null) }} style={{ minWidth: 350 }}>
               <h2>Edit List Options</h2>
               <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
                 One option per line:
@@ -2295,7 +2304,7 @@ export function DocumentBrowser({ onImport, onSurveyImport, showManageDocTags, o
   } | null>(null)
   const menuPos = useClampedMenuPosition(contextMenu)
   // The tag-count chip's menu: the document's tags, each removable.
-  const [tagChipMenu, setTagChipMenu] = useState<{ x: number; y: number; sourceGuid: string } | null>(null)
+  const [tagChipMenu, setTagChipMenu] = useState<{ x: number; y: number; target: TagDialogTarget } | null>(null)
   const tagChipMenuPos = useClampedMenuPosition(tagChipMenu)
   // What the Apply-Tags dialog is targeting: a whole document/survey
   // (sourceGuid), or a survey respondent / question sub-entity.
@@ -2514,10 +2523,10 @@ export function DocumentBrowser({ onImport, onSurveyImport, showManageDocTags, o
   const closeContextMenu = useCallback(() => setContextMenu(null), [])
 
   // Clicking the chip of the document whose menu is open closes it.
-  const handleTagCountClick = useCallback((sourceGuid: string, anchor: DOMRect) => {
+  const handleTagCountClick = useCallback((target: TagDialogTarget, anchor: DOMRect) => {
     setContextMenu(null)
     setTagChipMenu((cur) =>
-      cur?.sourceGuid === sourceGuid ? null : { x: anchor.left, y: anchor.bottom + 2, sourceGuid }
+      cur && tagTargetKey(cur.target) === tagTargetKey(target) ? null : { x: anchor.left, y: anchor.bottom + 2, target }
     )
   }, [])
 
@@ -2540,10 +2549,9 @@ export function DocumentBrowser({ onImport, onSurveyImport, showManageDocTags, o
     return () => document.removeEventListener('mousedown', handleDown)
   }, [contextMenu, tagContextMenu, tagChipMenu])
 
-  // Close the chip menu once its document has no tags left.
-  const tagChipMenuTags = tagChipMenu
-    ? tags.filter((t) => t.memberSourceGuids.includes(tagChipMenu.sourceGuid))
-    : []
+  // Close the chip menu once its document, respondent or question has
+  // no tags left.
+  const tagChipMenuTags = tagChipMenu ? tags.filter((t) => tagAppliesTo(t, tagChipMenu.target)) : []
   useEffect(() => {
     if (tagChipMenu && tagChipMenuTags.length === 0) setTagChipMenu(null)
   }, [tagChipMenu, tagChipMenuTags.length])
@@ -2803,6 +2811,7 @@ export function DocumentBrowser({ onImport, onSurveyImport, showManageDocTags, o
               onContextMenuSurveyChild={handleContextMenuSurveyChild}
               selectedSurveyEntities={selectedSurveyEntities}
               onToggleSurveyEntity={handleToggleSurveyEntity}
+              onTagCountClick={handleTagCountClick}
             />
           ) : (
             <DocItem
@@ -2829,8 +2838,8 @@ export function DocumentBrowser({ onImport, onSurveyImport, showManageDocTags, o
         {/* Internal divider between the Documents tree and the Tags
             tree. Mirrors the queries-sidebar-divider pattern: a
             visible 1 px line that survives in every theme, including
-            the floating-card themes (Granola, Zine) where the global
-            "hide all resize handles" rule would otherwise blank it.
+            the floating-card Magnolia themes where the global "hide
+            all resize handles" rule would otherwise blank it.
             The className opts the handle into the per-theme exception
             list further down in global.css. */}
         {tagsCollapsed ? (
@@ -3115,11 +3124,14 @@ export function DocumentBrowser({ onImport, onSurveyImport, showManageDocTags, o
                 </span>
                 <button
                   className="tag-chip-menu-remove"
-                  title={lockedBy ? checkoutLockedTitle(lockedBy) : 'Remove from this document'}
-                  aria-label={`Remove ${tag.value || tag.name} from this document`}
+                  title={lockedBy ? checkoutLockedTitle(lockedBy) : `Remove from this ${tagChipMenu.target.kind}`}
+                  aria-label={`Remove ${tag.value || tag.name} from this ${tagChipMenu.target.kind}`}
                   onClick={() => {
                     if (lockedBy) { setTagChipMenu(null); promptCheckoutLocked(); return }
-                    removeTagFromDocument(tag.guid, tagChipMenu.sourceGuid)
+                    const t = tagChipMenu.target
+                    if (t.kind === 'respondent') removeTagFromSurveyRespondent(tag.guid, t.sourceGuid, t.id)
+                    else if (t.kind === 'question') removeTagFromSurveyQuestion(tag.guid, t.sourceGuid, t.id)
+                    else removeTagFromDocument(tag.guid, t.sourceGuid)
                   }}
                 >
                   <Icon icon={faXmark} />
@@ -3132,10 +3144,10 @@ export function DocumentBrowser({ onImport, onSurveyImport, showManageDocTags, o
             className="context-menu-item"
             title={lockedBy ? checkoutLockedTitle(lockedBy) : undefined}
             onClick={() => {
-              const sourceGuid = tagChipMenu.sourceGuid
+              const target = tagChipMenu.target
               setTagChipMenu(null)
               if (lockedBy) { promptCheckoutLocked(); return }
-              setShowTagDialog({ kind: 'document', sourceGuid })
+              setShowTagDialog(target)
             }}
           >
             Edit Tags...
@@ -3388,10 +3400,7 @@ export function DocumentBrowser({ onImport, onSurveyImport, showManageDocTags, o
 
       {/* New / Rename folder dialog */}
       {editingFolder && (
-        <div
-          className="modal-overlay"
-          onClick={() => { setEditingFolder(null); setIsNewFolder(false) }}
-        >
+        <div className="modal-overlay">
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h2>{isNewFolder
               ? (newFolderKind === 'notebook' ? 'New Notebook' : 'New Folder')
@@ -3451,19 +3460,7 @@ export function DocumentBrowser({ onImport, onSurveyImport, showManageDocTags, o
           title="Edit Tags"
           tags={tags}
           categories={categories}
-          isAssigned={(tag) => {
-            if (showTagDialog.kind === 'respondent') {
-              return (tag.memberSurveyRespondents ?? []).some(
-                (m) => m.sourceGuid === showTagDialog.sourceGuid && m.id === showTagDialog.id
-              )
-            }
-            if (showTagDialog.kind === 'question') {
-              return (tag.memberSurveyQuestions ?? []).some(
-                (m) => m.sourceGuid === showTagDialog.sourceGuid && m.id === showTagDialog.id
-              )
-            }
-            return tag.memberSourceGuids.includes(showTagDialog.sourceGuid)
-          }}
+          isAssigned={(tag) => tagAppliesTo(tag, showTagDialog)}
           onAssign={(tagGuid) => {
             if (showTagDialog.kind === 'respondent') assignTagToSurveyRespondent(tagGuid, showTagDialog.sourceGuid, showTagDialog.id)
             else if (showTagDialog.kind === 'question') assignTagToSurveyQuestion(tagGuid, showTagDialog.sourceGuid, showTagDialog.id)

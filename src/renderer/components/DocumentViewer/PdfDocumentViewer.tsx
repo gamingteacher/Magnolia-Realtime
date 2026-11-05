@@ -17,7 +17,8 @@ import type { Code, Memo, MemoEditInitData, TextSource, PdfRegionSelection } fro
 import 'pdfjs-dist/web/pdf_viewer.css'
 import { usePendingSelectionStore } from '../../stores/pending-selection-store'
 import { useNewCodeTriggerStore } from '../../stores/new-code-trigger-store'
-import { usePdfViewStore } from '../../stores/pdf-view-store'
+import { useRememberedScroll } from '../../utils/use-remembered-scroll'
+import { paneScrollKey, type SplitPane } from '../../utils/split-view'
 import { modKey } from '../../utils/platform'
 import { roundRegionToWholePixels } from '../../utils/region-rounding'
 
@@ -80,9 +81,16 @@ function resolveCp(node: Node, offset: number): number | null {
 interface Props {
   source: TextSource
   content: string
+  /** Which half of a split view this is; each remembers its own place. */
+  pane?: SplitPane
+  /** The half the reader is working in: only it takes code hotkeys,
+   *  mirrors its selection for the New Code dialog and follows quote /
+   *  memo clicks. Always true when the document isn't split. */
+  active?: boolean
+  onActivate?: () => void
 }
 
-export function PdfDocumentViewer({ source, content }: Props) {
+export function PdfDocumentViewer({ source, content, pane = 'primary', active = true, onActivate }: Props) {
   const addSelection = useDocumentStore((s) => s.addSelection)
   const addCodingToSelection = useDocumentStore((s) => s.addCodingToSelection)
   const removeCoding = useDocumentStore((s) => s.removeCoding)
@@ -123,6 +131,7 @@ export function PdfDocumentViewer({ source, content }: Props) {
   // to be set.
   const setGlobalPendingSelection = usePendingSelectionStore((s) => s.setSelection)
   useEffect(() => {
+    if (!active) return
     if (pendingBoxSelection) {
       setGlobalPendingSelection({
         kind: 'region',
@@ -134,7 +143,21 @@ export function PdfDocumentViewer({ source, content }: Props) {
     } else {
       setGlobalPendingSelection(null)
     }
-  }, [pendingSelection, pendingBoxSelection, source.guid, setGlobalPendingSelection])
+  }, [active, pendingSelection, pendingBoxSelection, source.guid, setGlobalPendingSelection])
+  // A half of a split view that stops being active drops its selection, so
+  // the New Code dialog can never code a stale selection in the other half.
+  const wasActiveRef = useRef(active)
+  useEffect(() => {
+    if (wasActiveRef.current && !active) {
+      setPendingSelection(null)
+      setPendingBoxSelection(null)
+      setBoxDrag(null)
+      setContextMenu(null)
+      setMenuHighlight(null)
+      setGlobalPendingSelection(null)
+    }
+    wasActiveRef.current = active
+  }, [active, setGlobalPendingSelection])
 
   const containerRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -173,7 +196,7 @@ export function PdfDocumentViewer({ source, content }: Props) {
   // fresh CSS animation — re-firing the pulse on every click.
   const pulseClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => {
-    if (!scrollTarget) return
+    if (!scrollTarget || !active) return
     if (scrollTarget.pdfRegion) {
       setPulseRegion(scrollTarget.pdfRegion)
       setPendingRegionScroll(scrollTarget.pdfRegion)
@@ -187,7 +210,7 @@ export function PdfDocumentViewer({ source, content }: Props) {
       setPendingTextScroll(r)
     }
     clearScrollTarget()
-  }, [scrollTarget, clearScrollTarget])
+  }, [scrollTarget, clearScrollTarget, active])
 
   // Perform the deferred region scroll once the target page's DOM exists.
   // allPagesRendered is the cheap way to know the layout has settled.
@@ -225,42 +248,14 @@ export function PdfDocumentViewer({ source, content }: Props) {
     setPendingTextScroll(null)
   }, [pendingTextScroll, allPagesRendered])
 
-  // Persist the scroll position continuously (not just on unmount — the
-  // component can be torn down without a clean unmount opportunity, e.g.
-  // when a tool tab like Preferences takes over) so switching away and
-  // back — even via a tool tab — restores the same page. See
-  // pdf-view-store.ts for why this lives outside the component.
-  useEffect(() => {
-    const sc = scrollContainerRef.current
-    if (!sc) return
-    let raf = 0
-    const handleScroll = () => {
-      if (raf) return
-      raf = requestAnimationFrame(() => {
-        raf = 0
-        usePdfViewStore.getState().setScrollPosition(source.guid, sc.scrollTop)
-      })
-    }
-    sc.addEventListener('scroll', handleScroll, { passive: true })
-    return () => {
-      sc.removeEventListener('scroll', handleScroll)
-      if (raf) cancelAnimationFrame(raf)
-    }
-  }, [source.guid])
-
-  // Restore that position once, the first time this document's pages have
-  // finished laying out. An explicit scroll target (opened via a saved
-  // quote/memo click) takes priority over the last-viewed position.
-  const restoredScrollGuidRef = useRef<string | null>(null)
-  useEffect(() => {
-    if (!allPagesRendered) return
-    if (restoredScrollGuidRef.current === source.guid) return
-    restoredScrollGuidRef.current = source.guid
-    if (pendingRegionScroll || pendingTextScroll) return
-    const sc = scrollContainerRef.current
-    const saved = usePdfViewStore.getState().scrollPositions[source.guid]
-    if (sc && saved) sc.scrollTop = saved
-  }, [allPagesRendered, source.guid, pendingRegionScroll, pendingTextScroll])
+  // Return to the page the reader was on, once this document's pages have
+  // laid out, unless a saved quote/memo click is taking them to a specific
+  // spot. Saved as they scroll, so it also survives switching to a tool
+  // tab (which unmounts this viewer) and reopening the project.
+  const rememberScroll = useRememberedScroll(paneScrollKey(source.guid, pane), scrollContainerRef, {
+    ready: allPagesRendered,
+    skipRestore: !!(pendingRegionScroll || pendingTextScroll)
+  })
 
   const codeMap = useMemo(() => buildCodeMap(codes), [codes])
   const flatCodes = useMemo(() => flattenCodes(codes), [codes])
@@ -654,8 +649,9 @@ export function PdfDocumentViewer({ source, content }: Props) {
     setZoom(fitScale)
   }, [])
 
-  // Hotkeys + ESC handling
+  // Hotkeys + ESC handling (the active half of a split only)
   useEffect(() => {
+    if (!active) return
     const handleKeyDown = (e: KeyboardEvent) => {
       // ESC: cancel box drag or pending box, or close context menu
       if (e.key === 'Escape') {
@@ -682,12 +678,14 @@ export function PdfDocumentViewer({ source, content }: Props) {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [hotkeyMap, pendingSelection, pendingBoxSelection, applyCodingToRange, applyCodingToRegion, boxDrag, contextMenu])
+  }, [active, hotkeyMap, pendingSelection, pendingBoxSelection, applyCodingToRange, applyCodingToRegion, boxDrag, contextMenu])
 
   return (
     <div
       ref={containerRef}
       style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}
+      onMouseDownCapture={onActivate}
+      onContextMenuCapture={onActivate}
       onMouseDown={(e) => {
         if (contextMenu && !(e.target as HTMLElement).closest('.context-menu')) {
           setContextMenu(null); setMenuHighlight(null)
@@ -734,6 +732,7 @@ export function PdfDocumentViewer({ source, content }: Props) {
       <div
         ref={scrollContainerRef}
         className="pdf-scroll-area"
+        onScroll={rememberScroll}
         style={{
           flex: 1, overflowY: 'auto', overflowX: 'auto',
           background: 'var(--bg-panel)', padding: '16px', position: 'relative',
@@ -787,6 +786,9 @@ export function PdfDocumentViewer({ source, content }: Props) {
         onContextMenu={(e) => {
           // Right-click during box drag → cancel drag
           if (boxDrag) { setBoxDrag(null); e.preventDefault(); return }
+          // Magnolia's menu replaces the system one (Look Up, Copy…),
+          // which would otherwise open on top of it over selected text.
+          e.preventDefault()
           handleContextMenu(e)
         }}
         onDragOver={(e) => {

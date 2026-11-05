@@ -116,7 +116,7 @@ export default defineConfig({
           page('Introduction', '/guide/introduction'), // DONE
           page('Installation', '/guide/installation'), // DONE
           page('Cloud Sync', '/guide/sync'),
-//          page('Interface', '/guide/interface'),
+          page('Interface', '/guide/interface'),
 //          page('Preferences', '/guide/preferences'),
 //          page('Logbook', '/guide/logbook'),
         ]
@@ -126,6 +126,9 @@ export default defineConfig({
         items: [
           page('Supported document types and formats', '/guide/supportedformats'), // DONE
           page('Importing documents', '/guide/importing'),  // DONE
+          page('Notes', '/guide/notes'),
+          page('Surveys', '/guide/surveys'),
+          page('Transcription', '/guide/transcription'),
 //          page('Tags', '/guide/tags'),
         ]
       },
@@ -143,6 +146,7 @@ export default defineConfig({
           page('Querying your data', '/guide/querying'),  // DONE
           page('Selecting Documents', '/guide/documentselector'),  // DONE
           page('Grouping Results', '/guide/grouping'), // DONE
+          page('Analysis tools', '/guide/analysis'),
           page('Codes in Documents', '/guide/codesindocuments'), // DONE
           page('Framework Matrix', '/guide/frameworkmatrix'), // DONE
           page('Results in Documents', '/guide/resultsindocuments'), // DONE
@@ -150,6 +154,7 @@ export default defineConfig({
           page('Code Orders', '/guide/codeorders'), // DONE
           page('Code Frequencies', '/guide/codefrequencies'), // DONE
           page('Word Frequencies', '/guide/wordfrequencies'), // DONE
+          page('Word Combinations', '/guide/wordcombinations'),
           page('Relationships', '/guide/relationships'), // DONE
           page('Reports', '/guide/reports'), // DONE
         ]

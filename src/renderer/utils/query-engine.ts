@@ -11,6 +11,7 @@ import type {
 } from '../models/types'
 import { codepointSlice, getContext } from './unicode'
 import { buildCellText } from './survey/cell-text'
+import { sentenceSpans } from './sentences'
 import { resolveTagCellScope, tagMembershipFromTags, type TagCellScope } from './survey-cell-scope'
 
 /** Resolve the text a selection actually points into.
@@ -191,6 +192,7 @@ function expandSubcodeConditions(cond: CodeCondition, codeMap: Map<string, Code>
     case 'outside':
     case 'before':
     case 'followedBy':
+    case 'sameSentence':
       return {
         ...cond,
         condition1: expandSubcodeConditions(cond.condition1, codeMap),
@@ -269,6 +271,12 @@ export function executeQuery(
   // matching behaviour identical to the old pre-expanded form.
   const codeCondition = expandSubcodeConditions(query.codeCondition, codeMap)
 
+  // `within`: text matches count only inside other queries' results (an
+  // empty list allows none).
+  const keep = query.within
+    ? withinFilter(query.within, sources, sourceContents, codes, tags, sourceFolder, folders)
+    : undefined
+
   // Evaluate each source
   for (const source of filteredSources) {
     const content = sourceContents[source.guid] ?? source.plainTextContent ?? ''
@@ -288,7 +296,7 @@ export function executeQuery(
 
     // Standalone text search: find all occurrences in the full document text
     if (condType === 'text') {
-      results.push(...textSearchDocument(codeCondition as { type: 'text'; searchText: string; caseSensitive?: boolean }, source, content, cellScope))
+      results.push(...textSearchDocument(codeCondition as { type: 'text'; searchText: string; caseSensitive?: boolean }, source, content, cellScope, keep))
       continue
     }
 
@@ -300,7 +308,7 @@ export function executeQuery(
       for (const child of flatChildren) {
         if (child.type === 'text') {
           // Document-wide text search for this branch
-          for (const r of textSearchDocument(child, source, content, cellScope)) {
+          for (const r of textSearchDocument(child, source, content, cellScope, keep)) {
             const key = spanKey(r)
             if (!seen.has(key)) { seen.add(key); results.push(r) }
           }
@@ -322,6 +330,12 @@ export function executeQuery(
       continue
     }
 
+    if (condType === 'sameSentence') {
+      const evalSelections = buildSpatialSelections(scopedSelections, codeCondition, source, content, cellScope, keep)
+      results.push(...findSameSentences(codeCondition as SameSentenceCondition, evalSelections, source, content, codeMap))
+      continue
+    }
+
     // For spatial operators, add synthetic spans for any TEXT operand so a
     // text term can be compared against coded spans (and other text spans) —
     // e.g. `"cattle" INSIDE <coded span>`. No-op for non-spatial conditions
@@ -330,7 +344,7 @@ export function executeQuery(
       condType === 'overlap' || condType === 'inside' || condType === 'outside' ||
       condType === 'before' || condType === 'followedBy'
     const evalSelections = isSpatial
-      ? buildSpatialSelections(scopedSelections, codeCondition, source, content, cellScope)
+      ? buildSpatialSelections(scopedSelections, codeCondition, source, content, cellScope, keep)
       : scopedSelections
 
     for (const selection of evalSelections) {
@@ -370,6 +384,39 @@ export function executeQuery(
   return results
 }
 
+/** Whether a text match (in a document, or in one survey cell) may count. */
+type KeepMatch = (sourceGuid: string, start: number, end: number, cell?: { respondentId: string; questionId: string }) => boolean
+
+/** The `within` filter: a text match counts only when it lies wholly inside
+ *  one of the results of the given queries, each run with its own
+ *  document filter. Box results (PDF/image regions) hold no text, so no
+ *  match can fall inside them. */
+function withinFilter(
+  queries: Query[],
+  sources: TextSource[],
+  sourceContents: Record<string, string>,
+  codes: Code[],
+  tags: QDASet[],
+  sourceFolder?: Record<string, string>,
+  folders?: { guid: string; parentGuid: string | null }[]
+): KeepMatch {
+  const spans = new Map<string, { start: number; end: number }[]>()
+  const key = (sourceGuid: string, cell?: { respondentId: string; questionId: string }) =>
+    cell ? `${sourceGuid}\n${cell.respondentId}\n${cell.questionId}` : sourceGuid
+  for (const q of queries) {
+    for (const r of executeQuery({ ...q, within: undefined }, sources, sourceContents, codes, tags, sourceFolder, folders)) {
+      // Video results carry transcript line indexes, not text offsets.
+      if (r.timeRange) continue
+      const k = key(r.sourceGuid, r.surveyCell)
+      let arr = spans.get(k)
+      if (!arr) { arr = []; spans.set(k, arr) }
+      arr.push({ start: r.startPosition, end: r.endPosition })
+    }
+  }
+  return (sourceGuid, start, end, cell) =>
+    (spans.get(key(sourceGuid, cell)) ?? []).some((s) => s.start <= start && end <= s.end)
+}
+
 /* ═══════════════════════════════════════════════════
    Text search helpers
    ═══════════════════════════════════════════════════ */
@@ -385,7 +432,8 @@ function textSearchDocument(
   cond: { type: 'text'; searchText: string; caseSensitive?: boolean; wholeWord?: boolean },
   source: TextSource,
   content: string,
-  cellScope?: TagCellScope
+  cellScope?: TagCellScope,
+  keep?: KeepMatch
 ): QueryResult[] {
   const results: QueryResult[] = []
   if (!cond.searchText) return results
@@ -403,6 +451,7 @@ function textSearchDocument(
         const cellText = buildCellText(respondent.answers[question.id])
         if (!cellText) continue
         for (const hit of findTextMatches(cellText, cond)) {
+          if (keep && !keep(source.guid, hit.start, hit.end, { respondentId: respondent.id, questionId: question.id })) continue
           results.push({
             sourceGuid: source.guid,
             sourceName: source.name,
@@ -425,6 +474,7 @@ function textSearchDocument(
   }
 
   for (const hit of findTextMatches(content, cond)) {
+    if (keep && !keep(source.guid, hit.start, hit.end)) continue
     results.push({
       sourceGuid: source.guid,
       sourceName: source.name,
@@ -448,6 +498,24 @@ interface TextMatch {
   after: string
 }
 
+/** The UTF-16 index of the next match of `needle` in `haystack` at or
+ *  after `from`, or -1. Both are already case-folded as needed. With
+ *  `wholeWord`, only an end of the needle that is part of a word needs a
+ *  boundary beside it: ", trust" still matches in "teachers, trust". */
+function nextTextMatch(haystack: string, needle: string, wholeWord: boolean | undefined, from: number): number {
+  const startsInWord = !isWordBoundary(needle[0])
+  const endsInWord = !isWordBoundary(needle[needle.length - 1])
+  let pos = from
+  while (true) {
+    const idx = haystack.indexOf(needle, pos)
+    if (idx === -1 || !wholeWord) return idx
+    const charBefore = idx > 0 ? haystack[idx - 1] : undefined
+    const charAfter = idx + needle.length < haystack.length ? haystack[idx + needle.length] : undefined
+    if ((!startsInWord || isWordBoundary(charBefore)) && (!endsInWord || isWordBoundary(charAfter))) return idx
+    pos = idx + 1
+  }
+}
+
 function findTextMatches(
   text: string,
   cond: { searchText: string; caseSensitive?: boolean; wholeWord?: boolean }
@@ -457,16 +525,8 @@ function findTextMatches(
   const needle = cond.caseSensitive ? cond.searchText : cond.searchText.toLowerCase()
   let pos = 0
   while (true) {
-    const idx = haystack.indexOf(needle, pos)
+    const idx = nextTextMatch(haystack, needle, cond.wholeWord, pos)
     if (idx === -1) break
-    if (cond.wholeWord) {
-      const charBefore = idx > 0 ? haystack[idx - 1] : undefined
-      const charAfter = idx + needle.length < haystack.length ? haystack[idx + needle.length] : undefined
-      if (!isWordBoundary(charBefore) || !isWordBoundary(charAfter)) {
-        pos = idx + 1
-        continue
-      }
-    }
     const cpStart = Array.from(text.slice(0, idx)).length
     const cpEnd = cpStart + Array.from(cond.searchText).length
     const matched = codepointSlice(text, cpStart, cpEnd)
@@ -496,6 +556,7 @@ function collectTextConditions(
     case 'outside':
     case 'before':
     case 'followedBy':
+    case 'sameSentence':
       return [...collectTextConditions(cond.condition1), ...collectTextConditions(cond.condition2)]
     default:
       return []
@@ -522,7 +583,8 @@ function buildSpatialSelections(
   cond: CodeCondition,
   source: TextSource,
   content: string,
-  cellScope: TagCellScope
+  cellScope: TagCellScope,
+  keep?: KeepMatch
 ): EvalSelection[] {
   const texts = collectTextConditions(cond)
   const survey = (source.formatData as SurveyFormatData | undefined)?.survey
@@ -547,6 +609,7 @@ function buildSpatialSelections(
     cellText?: string,
     cell?: { respondentId: string; questionId: string }
   ): void => {
+    if (keep && !keep(source.guid, start, end, cell)) return
     const key = spanKey({ startPosition: start, endPosition: end, surveyCell: cell })
     if (seen.has(key)) return // don't duplicate an existing coded span
     seen.add(key)
@@ -587,7 +650,7 @@ function containsTextCondition(cond: CodeCondition): boolean {
       return cond.conditions.some((c) => containsTextCondition(c))
     case 'not':
       return containsTextCondition(cond.condition)
-    case 'overlap': case 'inside': case 'outside': case 'before': case 'followedBy':
+    case 'overlap': case 'inside': case 'outside': case 'before': case 'followedBy': case 'sameSentence':
       return containsTextCondition(cond.condition1) || containsTextCondition(cond.condition2)
   }
 }
@@ -614,28 +677,31 @@ function flattenOr(cond: CodeCondition): CodeCondition[] {
 }
 
 /** Validate a condition tree; returns an error message or null */
-export function validateCondition(cond: CodeCondition): string | null {
+export function validateCondition(cond: CodeCondition, nested = false): string | null {
+  if (cond.type === 'sameSentence' && nested) {
+    return 'Same sentence must connect straight to Result: the sentences it finds can\'t be used as an input to another box or negated with NOT.'
+  }
   if (cond.type === 'and' || cond.type === 'xor') {
     if (cond.conditions.every((c) => isAllTextCondition(c))) {
       return 'Text-only inputs can only be combined with the OR operator. AND, EITHER/OR, and BUT NOT are not valid for multiple text inputs.'
     }
     for (const c of cond.conditions) {
-      const err = validateCondition(c)
+      const err = validateCondition(c, true)
       if (err) return err
     }
   }
   if (cond.type === 'or') {
     for (const c of cond.conditions) {
-      const err = validateCondition(c)
+      const err = validateCondition(c, true)
       if (err) return err
     }
   }
   if (cond.type === 'not') {
-    return validateCondition(cond.condition)
+    return validateCondition(cond.condition, true)
   }
   if ('condition1' in cond && 'condition2' in cond) {
     const c = cond as { condition1: CodeCondition; condition2: CodeCondition }
-    return validateCondition(c.condition1) || validateCondition(c.condition2)
+    return validateCondition(c.condition1, true) || validateCondition(c.condition2, true)
   }
   return null
 }
@@ -658,13 +724,9 @@ function evaluateCondition(
       if (!selectionText || !condition.searchText) return false
       const hay = condition.caseSensitive ? selectionText : selectionText.toLowerCase()
       const ndl = condition.caseSensitive ? condition.searchText : condition.searchText.toLowerCase()
-      if (condition.wholeWord) {
-        // Use word-boundary regex for whole-word matching
-        const escaped = ndl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-        const re = new RegExp(`\\b${escaped}\\b`, condition.caseSensitive ? '' : 'i')
-        return re.test(selectionText)
-      }
-      return hay.includes(ndl)
+      // Same matching as a document-wide search, so a whole word is the
+      // same thing whether it's searched for alone or inside a code.
+      return nextTextMatch(hay, ndl, condition.wholeWord, 0) !== -1
     }
     case 'and':
       return condition.conditions.every((c) => evaluateCondition(c, codeGuids, selectionText, selection, allSelections, content))
@@ -686,6 +748,9 @@ function evaluateCondition(
       if (selection && allSelections && content) {
         return selectionMatchesCondition(selection, condition, content, allSelections)
       }
+      return false
+    case 'sameSentence':
+      // Only valid as the whole query (see validateCondition).
       return false
   }
 }
@@ -711,6 +776,7 @@ function collectReferencedCodes(condition: CodeCondition, out: Set<string>): voi
     case 'outside':
     case 'before':
     case 'followedBy':
+    case 'sameSentence':
       collectReferencedCodes(condition.condition1, out)
       collectReferencedCodes(condition.condition2, out)
       break
@@ -890,7 +956,9 @@ function findOverlapIntersections(
       matchedText,
       contextBefore: before,
       contextAfter: after,
-      matchedCodes: collectMatchedCodes(condition.condition1, allCodes, codeMap)
+      matchedCodes: collectMatchedCodes(condition.condition1, allCodes, codeMap),
+      // Survey intersections index into one cell's text; say which.
+      surveyCell: selection.surveyCell
     })
   }
 
@@ -1004,6 +1072,73 @@ function findFollowedBySelections(
     }
   }
   return []
+}
+
+type SameSentenceCondition = { type: 'sameSentence'; condition1: CodeCondition; condition2: CodeCondition }
+
+/**
+ * SAME SENTENCE: the sentences that contain both a Condition 1 selection and
+ * a Condition 2 selection (a selection counts for every sentence it
+ * touches). The result is the sentence itself. Box and video selections
+ * have no place in the text, so they never count.
+ */
+function findSameSentences(
+  condition: SameSentenceCondition,
+  allSelections: EvalSelection[],
+  source: TextSource,
+  content: string,
+  codeMap: Map<string, Code>
+): QueryResult[] {
+  // A text operand matches any selection whose text CONTAINS the word —
+  // including a long coded passage, which would claim every sentence it
+  // touches. Only the spans where the text itself occurs count here.
+  const operand = (cond: CodeCondition) => {
+    const texts = new Set(collectTextConditions(cond).map((t) => t.searchText.toLowerCase()))
+    return (sel: EvalSelection) => {
+      if (texts.size > 0) {
+        const base = sel._text ?? textForSelection(source, sel, content)
+        if (!texts.has(codepointSlice(base, sel.startPosition, sel.endPosition).toLowerCase())) return false
+      }
+      return selectionMatchesCondition(sel, cond, content, allSelections)
+    }
+  }
+  const is1 = operand(condition.condition1)
+  const is2 = operand(condition.condition2)
+
+  // Operand selections grouped by the text they index into: the document,
+  // or one survey cell.
+  const groups = new Map<string, { text: string; cell?: PlainTextSelection['surveyCell']; s1: EvalSelection[]; s2: EvalSelection[] }>()
+  for (const sel of allSelections) {
+    if (sel.pdfRegion || sel.timeRange) continue
+    const in1 = is1(sel)
+    const in2 = is2(sel)
+    if (!in1 && !in2) continue
+    const key = sel.surveyCell ? `${sel.surveyCell.respondentId}\n${sel.surveyCell.questionId}` : ''
+    let g = groups.get(key)
+    if (!g) {
+      g = { text: sel._text ?? textForSelection(source, sel, content), cell: sel.surveyCell, s1: [], s2: [] }
+      groups.set(key, g)
+    }
+    if (in1) g.s1.push(sel)
+    if (in2) g.s2.push(sel)
+  }
+
+  const results: QueryResult[] = []
+  for (const g of groups.values()) {
+    if (g.s1.length === 0 || g.s2.length === 0) continue
+    for (const sentence of sentenceSpans(g.text)) {
+      const touches = (s: EvalSelection) => s.startPosition < sentence.end && s.endPosition > sentence.start
+      const hits1 = g.s1.filter(touches)
+      if (hits1.length === 0) continue
+      const hits2 = g.s2.filter(touches)
+      if (hits2.length === 0) continue
+      const codeGuids = new Set([...hits1, ...hits2].flatMap((s) => s.codings.map((c) => c.codeGuid)))
+      const span = { startPosition: sentence.start, endPosition: sentence.end, surveyCell: g.cell }
+      const sel: PlainTextSelection = { guid: `sentence-${source.guid}-${spanKey(span)}`, ...span, codings: [] }
+      results.push(buildResult(source, sel, content, codeGuids, codeMap))
+    }
+  }
+  return results
 }
 
 function buildResult(

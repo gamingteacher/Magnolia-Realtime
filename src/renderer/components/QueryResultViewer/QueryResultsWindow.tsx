@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
-import { Icon, faDownLeftAndUpRightToCenter } from '../Icon'
+import { faXmark, Icon, faDownLeftAndUpRightToCenter } from '../Icon'
 import type { QueryResult, QueryResultsInitData, PlainTextSelection } from '../../models/types'
 import { stripFormatting } from '../../utils/strip-formatting'
 import { sourceTypeFromFilename } from '../../utils/format-registry'
@@ -56,7 +56,7 @@ export function QueryResultsWindow() {
       endPosition: result.endPosition,
       pdfRegion: sel?.pdfRegion,
       timeRange: result.timeRange,
-      surveyCell: sel?.surveyCell
+      surveyCell: result.surveyCell ?? sel?.surveyCell
     })
   }, [sourceSelections])
 
@@ -83,7 +83,7 @@ export function QueryResultsWindow() {
   // identical (context menu with New Code… / Existing Codes… that opens
   // an inline drop-zone). Drop-zone drag-drop accepts custom MIME types
   // dragged from the main window's Code Browser; Chromium routes them
-  // across BrowserWindow instances in the same Electron app.
+  // across the app's windows.
   const [codeAllMenu, setCodeAllMenu] = useState<null | 'context' | 'drop-zone'>(null)
   const [dropOver, setDropOver] = useState(false)
   const codeAllRef = useRef<HTMLDivElement>(null)
@@ -321,17 +321,15 @@ export function QueryResultsWindow() {
   // QueryResultViewer uses when a sidebar is present.
   const header = (
     <div className="panel-header query-results-header">
-      <span>Query{activeSavedQuery ? ':' : (data.queryName ? ':' : '')}</span>
-      {activeSavedQuery ? (
+      {/* Same title as the popped-in pane (QueryResultViewer): "Query",
+          plus ": <name>" while a saved query is running. */}
+      <span>Query{activeSavedQuery ? ':' : ''}</span>
+      {activeSavedQuery && (
         <span style={{ marginLeft: 4 }}>
           <EditableTitleSuffix
             name={activeSavedQuery.name}
             onRename={(newName) => handleRenameActiveQuery(activeSavedQuery.guid, newName)}
           />
-        </span>
-      ) : data.queryName && (
-        <span style={{ marginLeft: 4, fontWeight: 300, color: 'var(--text-secondary)' }}>
-          {data.queryName}
         </span>
       )}
       <span style={{ flex: 1 }} />
@@ -488,6 +486,18 @@ export function QueryResultsWindow() {
       >
         <Icon icon={faDownLeftAndUpRightToCenter} />
       </button>
+      {/* Close, as in the popped-in pane: hides the pane (View →
+          Queries brings it back) as well as closing this window. */}
+      <button
+        className="panel-header-close"
+        onClick={() => {
+          window.api.sendQueryResultsAction('close-panel')
+          window.close()
+        }}
+        title="Close panel"
+      >
+        <Icon icon={faXmark} />
+      </button>
     </div>
   )
 
@@ -524,9 +534,9 @@ export function QueryResultsWindow() {
             onEditQuery={(guid) => window.api.sendQueryResultsAction('edit-saved-query', { guid })}
           />
         </Panel>
-        {/* The class on this handle is read by the Granola theme
+        {/* The class on this handle is read by the Magnolia themes'
             override so the divider stays visible inside the
-            Queries panel even though the global Granola rule
+            Queries panel even though their global rule
             hides every other resize handle (to preserve the
             floating-card look). */}
         <PanelResizeHandle className="queries-sidebar-divider" style={{ width: 1, background: 'var(--border-color)', cursor: 'col-resize' }} />

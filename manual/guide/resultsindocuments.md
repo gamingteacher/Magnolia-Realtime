@@ -6,11 +6,11 @@ Think of it as Codes in Documents for queries: instead of asking "where does thi
 
 **To open Results in Documents:**
 
-1. Click the `Analyse` button in the toolbar.
+1. Click the `Analyse` tab in the ribbon.
 
-2. Choose `Results in Documents`.
+2. Click `Results in Documents`.
 
-The tool contains the [Group By](/guide/grouping) function.
+The tool contains the [Grouped by](/guide/grouping) function.
 
 ## Adding queries
 
@@ -71,8 +71,8 @@ Click any cell with a count above zero to run that query in that document. The r
 
 ## Saving and exporting
 
-You can save the analysis by clicking `Save Analysis`. It appears in the Analyses Panel. If you make changes later, click `Update Analysis` to save them.
+You can save the analysis by clicking `Save Analysis`. It appears in the Saved Analyses Panel. If you make changes later, click `Update Analysis` to save them.
 
 You can export the table as a spreadsheet by clicking `Export CSV`.
 
-You can also add the analysis to a [Report](/guide/reports) by dragging it from the Analyses Panel into the report.
+You can also add the analysis to a [Report](/guide/reports) by dragging it from the Saved Analyses Panel into the report.
