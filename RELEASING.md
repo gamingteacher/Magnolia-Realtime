@@ -68,6 +68,12 @@ key lives at `~/.tauri/magnolia-updater.key` on the Mac it was generated on
   (PowerShell: `$env:TAURI_SIGNING_PRIVATE_KEY = Get-Content -Raw $HOME\.tauri\magnolia-updater.key`.)
   Without it the build still works but stops with "no private key" at the
   end, and produces no update payload.
+- For GitHub releases, set the repository Actions secret
+  `TAURI_SIGNING_PRIVATE_KEY` to the **contents** of this key (not its path).
+  Leave `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` unset or empty for this
+  passwordless key. The release workflow checks that the key can sign before
+  starting the platform builds; a wrong-password error means the key and
+  password secrets do not match.
 
 ---
 

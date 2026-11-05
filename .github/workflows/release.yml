@@ -32,6 +32,21 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: npm ci
 
+      - name: Validate updater signing key
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if [[ -z "$TAURI_SIGNING_PRIVATE_KEY" ]]; then
+            echo "::error::TAURI_SIGNING_PRIVATE_KEY repository secret is missing"
+            exit 1
+          fi
+          test_file="$(mktemp)"
+          trap 'rm -f "$test_file" "$test_file.sig"' EXIT
+          printf 'Magnolia updater key check\n' > "$test_file"
+          npx tauri signer sign "$test_file"
+
       # Updater artifacts are signed with this fork's own key (generate it with
       # `npx tauri signer generate` and put its public half in tauri.conf.json).
       - uses: tauri-apps/tauri-action@v0
