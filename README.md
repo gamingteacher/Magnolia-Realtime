@@ -8,7 +8,11 @@ A fork of [Magnolia](https://github.com/caledavis/Magnolia), the free and open-s
 
 Magnolia stays local-first. Without sync, it works exactly as before: local files and the open QDPX standard. With sync, a team can code the same project at the same time.
 
-Released under the European Union Public Licence (EUPL), like the original.
+Based on Magnolia 2.0 (Tauri 2 + Rust). Released under the European Union Public Licence (EUPL), like the original.
+
+## Download
+
+Installers for Windows and Linux (AppImage, .deb, .rpm) are on the [Releases page](https://github.com/gamingteacher/Magnolia-Realtime/releases/latest). The app updates itself from there.
 
 <p align="center">
   <img src="screenshot-interface.webp" alt="Magnolia Realtime" width="49%">
@@ -25,14 +29,14 @@ Released under the European Union Public Licence (EUPL), like the original.
 - **Conflict-safe.** Every entity has a GUID and a version, and writes are compare-and-swap. Different-field edits merge automatically. Same-field edits, overlapping text edits and delete-versus-edit become conflicts that you resolve with "Keep mine" or "Take theirs". Codings are separate entities, so two people coding the same passage never collide.
 - **Text merge and selection rebasing.** Concurrent text edits are merged, and selections and codes are rebased onto the new text.
 - **Media sync.** Images, audio, video and PDFs are uploaded by content hash (SHA-256) to a private storage bucket and downloaded on demand.
-- **Roles and security.** Owner, editor and viewer roles are enforced with row-level security and membership checks, not by sharing a key. Viewers are read-only. Service-role and secret keys are rejected, and credentials are stored with the operating system's secure storage (Electron `safeStorage`).
+- **Roles and security.** Owner, editor and viewer roles are enforced with row-level security and membership checks, not by sharing a key. Viewers are read-only. Service-role and secret keys are rejected, and credentials are stored with the operating system's secure storage (an AES-256 key held in the OS keychain).
 - **Presence and activity.** See who is online and a log of who changed what and when.
 - **Join and merge.** Joining an existing project opens Magnolia's Merge review, so you can reconcile local work with the shared project.
 - **Status badge.** A badge shows connection state, pending changes and conflicts.
 
 ## Quick start
 
-Requirements: a current Node.js LTS and a Supabase project (the free tier works).
+Requirements: a current Node.js LTS, a [Rust toolchain](https://rustup.rs), the [Tauri system dependencies](https://tauri.app/start/prerequisites/) (on Fedora: `webkit2gtk4.1-devel gtk3-devel librsvg2-devel libappindicator-gtk3-devel dbus-devel openssl-devel`), and a Supabase project (the free tier works).
 
 ```bash
 git clone https://github.com/gamingteacher/Magnolia-Realtime
@@ -52,10 +56,10 @@ More detail is in the manual page [manual/guide/sync.md](manual/guide/sync.md).
 | Command | Purpose |
 | --- | --- |
 | `npm run dev` | Run the app in development |
-| `npm run build` | Build main, preload and renderer bundles |
-| `npm test` | Run the unit tests (Vitest) |
+| `npm run build` | Build the installers with Tauri |
+| `npm run typecheck` | Type-check the renderer |
+| `npm test` | Run the unit tests (Vitest and cargo) |
 | `node scripts/sync-e2e.mjs` | Live backend check against your Supabase project |
-| `npm run package:linux` / `:mac` / `:win` | Build installers |
 
 The e2e script reads the Supabase URL and publishable key from the environment (`SUPABASE_URL`, `SUPABASE_ANON_KEY`). Use a disposable project, because it creates test data.
 
@@ -69,7 +73,7 @@ The e2e script reads the Supabase URL and publishable key from the environment (
 | `src/renderer/sync/text-merge.ts`, `rebase.ts` | Text merge and selection rebasing |
 | `src/renderer/sync/store-bridge.ts` | Connects the engine to the zustand stores |
 | `src/renderer/sync/supabase-backend.ts`, `session.ts` | Backend and session orchestration |
-| `src/main/sync-credentials.ts` | Secure credentials, state and media IPC |
+| `src-tauri/src/sync.rs` | Secure credentials, state and media transfer (Tauri commands) |
 | `src/renderer/components/Preferences/CloudSyncSettings.tsx` | Settings UI |
 
 ## Everything else
@@ -78,8 +82,12 @@ All other features (query builder, analysis tools, transcription, video and surv
 
 ## Known limitations
 
-- The Electron UI for sync has been verified at the backend level and with unit tests. Please report problems you find when running it.
+- The sync UI has been verified at the backend level and with unit tests. Please report problems you find when running it.
 - Supabase free-tier limits apply (for example 50 MB per file, and projects pause when idle).
+
+## Releasing
+
+Push a `v*` tag. The Release workflow builds Windows and Linux installers with `tauri-action` and signs the updater artifacts with the `TAURI_SIGNING_PRIVATE_KEY` repository secret (and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`).
 
 ## Licence
 

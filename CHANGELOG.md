@@ -4,6 +4,13 @@ All notable changes to Magnolia are documented here. The format follows [Keep a 
 
 ## [Unreleased]
 
+## [2.0.1]
+
+### Changed
+- **Based on Magnolia 2.0.0 (Tauri 2 + Rust).** Brings upstream's split view, Memos window, ribbon, Word Combinations and Software Update window.
+- **Cloud Sync now runs on the Rust backend.** Credentials are encrypted with a key in the OS keychain. Re-enter your Supabase URL and key and sign in once after updating from 1.x.
+- Updates come from this fork's releases, signed with its own key. Forest Light and Forest Dark are kept.
+
 ## [2.0.0]
 
 **Updating from Magnolia 1.x on a Mac:** Magnolia closes to finish the update and doesn't reopen by itself. Open it again from your Applications folder; your projects and preferences are kept.
