@@ -3,6 +3,7 @@ import type { User, SavedAnalysis, CheckoutMarker } from '../models/types'
 import { generateGuid } from '../utils/guid'
 import { makeHmrSafe } from './hmr-preserve'
 import { usePreferencesStore } from './preferences-store'
+import { t } from '../i18n'
 
 /** Strip directory and .qdpx extension from a file path. */
 function deriveNameFromPath(filePath: string): string {
@@ -70,6 +71,13 @@ interface ProjectState {
 
 const defaultUserGuid = generateGuid()
 
+
+/** Whether a project name is the placeholder a new project gets (in
+ *  English, as stored by default, or in the current language). */
+export function isUntitledName(name: string): boolean {
+  return name === 'Untitled Project' || name === t('project.untitled')
+}
+
 export const useProjectStore = create<ProjectState>((set, get) => ({
   name: 'Untitled Project',
   origin: `Magnolia ${__APP_VERSION__}`,
@@ -104,7 +112,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   loadProject: (data) =>
     set({
-      name: data.name && data.name.trim() ? data.name : (data.filePath ? deriveNameFromPath(data.filePath) : 'Untitled Project'),
+      name: data.name && data.name.trim() ? data.name : (data.filePath ? deriveNameFromPath(data.filePath) : t('project.untitled')),
       origin: data.origin,
       description: data.description,
       users: data.users,
@@ -120,7 +128,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   setFilePath: (path) =>
     set((state) => ({
       filePath: path,
-      name: !state.name || state.name === 'Untitled Project' ? deriveNameFromPath(path) : state.name
+      name: !state.name || isUntitledName(state.name) ? deriveNameFromPath(path) : state.name
     })),
   // Enforced lock: while someone else's checkoutMarker is on the project,
   // refuse to flip dirty at all — every store's mutation methods call this
@@ -191,5 +199,5 @@ export function useCheckoutLockedBy(): string | null {
 
 /** Standard tooltip/title text for a control disabled by useCheckoutLockedBy. */
 export function checkoutLockedTitle(lockedBy: string): string {
-  return `${lockedBy} is working on this file — take over or create a copy to edit`
+  return t('project.lockedTitle', { name: lockedBy })
 }

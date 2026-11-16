@@ -18,9 +18,17 @@ import { useNewCodeTriggerStore } from '../../stores/new-code-trigger-store'
 import { useProjectStore, useCheckoutLockedBy, checkoutLockedTitle } from '../../stores/project-store'
 import { useRememberedScroll } from '../../utils/use-remembered-scroll'
 import { paneScrollKey, type SplitPane } from '../../utils/split-view'
-import { modKey } from '../../utils/platform'
+import { SelectionMenuButton, textSelectionAnchor } from './SelectionMenuButton'
+import { ApplyCodeMenuList } from './ApplyCodeMenuList'
 import { CodedTextView, type CodingRightClickContext } from './CodedTextView'
 import type { Code, MemoEditInitData, SourceType, TextSource } from '../../models/types'
+import { useTranslation } from 'react-i18next'
+import { digitKey } from '../../utils/keys'
+
+/** After a long jump, how many frames the target must stay put, and how
+ *  long to keep re-centring it at most. */
+const SETTLE_STILL_FRAMES = 20
+const SETTLE_MAX_MS = 2000
 
 function flattenCodes(codes: Code[], depth = 0): { code: Code; depth: number }[] {
   const result: { code: Code; depth: number }[] = []
@@ -43,6 +51,7 @@ interface Props {
 }
 
 export function TextDocumentPane({ source, content, sourceType, pane, active, onActivate }: Props) {
+  const { t } = useTranslation()
   // Enforced checkout lock: reading/scrolling/searching documents stays
   // live; the right-click menu's mutations (New Code, apply/remove a
   // code, add a quote, add/delete a selection memo), the drag-a-code-here
@@ -134,39 +143,89 @@ export function TextDocumentPane({ source, content, sourceType, pane, active, on
   // without this, clicking a Saved Quote or Saved Memo would park
   // `menuHighlight` permanently and externalHighlightRange would
   // override every following mouseenter.
+  //
+  // The target is copied into local state before the store's is cleared.
+  // Clearing it re-runs any effect that depends on it, and that effect's
+  // cleanup would cancel the scroll and the release before they happen.
+  const [jump, setJump] = useState<{ startCp: number; endCp: number } | null>(null)
   useEffect(() => {
     if (!active || !scrollTarget || !containerRef.current) return
-    setMenuHighlight(scrollTarget)
+    setJump(scrollTarget)
+    clearScrollTarget()
+  }, [active, scrollTarget, clearScrollTarget])
+  useEffect(() => {
+    if (!jump) return
+    setMenuHighlight(jump)
     // A long document builds the block holding the target only once it
     // re-renders with the highlight, so keep looking for a few frames.
     let frame = 0
     let rafId = 0
-    const tryScroll = () => {
-      if (!containerRef.current) return
-      const container = containerRef.current
-      const allSpans = container.querySelectorAll<HTMLSpanElement>('[data-cpoffset]')
-      for (const span of allSpans) {
+    let stopSettling = () => {}
+    const findSpan = (container: HTMLElement) => {
+      for (const span of container.querySelectorAll<HTMLSpanElement>('[data-cpoffset]')) {
         const cpOff = parseInt(span.dataset.cpoffset!, 10)
         const spanCpLen = [...(span.textContent || '')].length
-        if (scrollTarget.startCp >= cpOff && scrollTarget.startCp < cpOff + spanCpLen) {
-          // Smooth-scroll short hops only. Across a long document a smooth
-          // scroll would build every block it passes, and their changing
-          // heights would throw it off target.
-          const distance = Math.abs(span.getBoundingClientRect().top - container.getBoundingClientRect().top)
-          span.scrollIntoView({ behavior: distance < container.clientHeight * 3 ? 'smooth' : 'auto', block: 'center' })
+        if (jump.startCp >= cpOff && jump.startCp < cpOff + spanCpLen) return span
+      }
+      return null
+    }
+    // After a long jump, the blocks around the target get built and their
+    // real heights differ from their placeholders', which moves the target.
+    // Re-centre it until it stays put, unless the reader starts scrolling.
+    const settle = (container: HTMLElement) => {
+      const startedAt = performance.now()
+      let lastTop: number | null = null
+      let stillFrames = 0
+      const interruptions = ['wheel', 'touchstart', 'mousedown'] as const
+      stopSettling = () => {
+        cancelAnimationFrame(rafId)
+        for (const type of interruptions) container.removeEventListener(type, stopSettling)
+        window.removeEventListener('keydown', stopSettling)
+      }
+      for (const type of interruptions) container.addEventListener(type, stopSettling, { passive: true })
+      window.addEventListener('keydown', stopSettling)
+      const step = () => {
+        const span = findSpan(container)
+        if (!span || stillFrames >= SETTLE_STILL_FRAMES || performance.now() - startedAt > SETTLE_MAX_MS) {
+          stopSettling()
           return
         }
+        const top = span.getBoundingClientRect().top
+        if (lastTop !== null && Math.abs(top - lastTop) > 1) {
+          span.scrollIntoView({ behavior: 'auto', block: 'center' })
+          stillFrames = 0
+        } else {
+          stillFrames++
+        }
+        lastTop = span.getBoundingClientRect().top
+        rafId = requestAnimationFrame(step)
+      }
+      rafId = requestAnimationFrame(step)
+    }
+    const tryScroll = () => {
+      const container = containerRef.current
+      if (!container) return
+      const span = findSpan(container)
+      if (span) {
+        // Smooth-scroll short hops only. Across a long document a smooth
+        // scroll would build every block it passes, and their changing
+        // heights would throw it off target.
+        const distance = Math.abs(span.getBoundingClientRect().top - container.getBoundingClientRect().top)
+        const short = distance < container.clientHeight * 3
+        span.scrollIntoView({ behavior: short ? 'smooth' : 'auto', block: 'center' })
+        if (!short) settle(container)
+        return
       }
       if (++frame < 10) rafId = requestAnimationFrame(tryScroll)
     }
     rafId = requestAnimationFrame(tryScroll)
-    clearScrollTarget()
     const timer = setTimeout(() => setMenuHighlight(null), 1500)
     return () => {
       clearTimeout(timer)
       cancelAnimationFrame(rafId)
+      stopSettling()
     }
-  }, [active, scrollTarget, clearScrollTarget])
+  }, [jump])
 
   // Return to where the reader last was in this half, unless a scroll
   // target (a quote or memo click) is taking them somewhere specific.
@@ -185,11 +244,6 @@ export function TextDocumentPane({ source, content, sourceType, pane, active, on
     return map
   }, [flatCodes])
 
-  const hotkeyCodes = useMemo(
-    () => flatCodes.filter(({ code }) => code.hotkey !== undefined)
-      .sort((a, b) => (a.code.hotkey ?? 0) - (b.code.hotkey ?? 0)),
-    [flatCodes]
-  )
 
   const applyCodingToRange = useCallback(
     (codeGuid: string, startCp: number, endCp: number, text: string) => {
@@ -307,8 +361,8 @@ export function TextDocumentPane({ source, content, sourceType, pane, active, on
     if (!active) return
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!e.metaKey && !e.ctrlKey) return
-      const digit = parseInt(e.key, 10)
-      if (isNaN(digit) || digit < 0 || digit > 9) return
+      const digit = digitKey(e)
+      if (digit === null) return
       const code = hotkeyMap.get(digit)
       if (!code || !pendingSelection) return
       e.preventDefault()
@@ -317,8 +371,10 @@ export function TextDocumentPane({ source, content, sourceType, pane, active, on
       applyCodingToRange(code.guid, startCp, endCp, selectedText)
     }
     window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [active, hotkeyMap, pendingSelection, applyCodingToRange, lockedBy])
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [active, hotkeyMap, pendingSelection, applyCodingToRange, lockedBy, sourceGuid, source.name])
 
   const openMemo = (memoGuid: string) => {
     const memo = useMemoStore.getState().findMemo(memoGuid)
@@ -390,6 +446,7 @@ export function TextDocumentPane({ source, content, sourceType, pane, active, on
           }
         }}
       >
+        {pendingSelection && <SelectionMenuButton containerRef={containerRef} anchor={textSelectionAnchor} />}
         {isNote ? (
           <CodedTextView
             text={content}
@@ -406,7 +463,7 @@ export function TextDocumentPane({ source, content, sourceType, pane, active, on
             editable={!lockedBy}
             onTextEdit={(next) => applyTranscriptEdit(sourceGuid, next)}
             onSelectionCleared={() => setPendingSelection(null)}
-            placeholder="Write your observation…"
+            placeholder={t('notes.placeholder')}
             autoFocus={content === ''}
           />
         ) : content && (
@@ -437,7 +494,7 @@ export function TextDocumentPane({ source, content, sourceType, pane, active, on
             }}
           >
             <span style={{ color: 'var(--accent)', fontWeight: 600, fontSize: 14 }}>
-              Drop code to apply to selection
+              {t('viewer.dropToApply')}
             </span>
           </div>
         )}
@@ -455,7 +512,7 @@ export function TextDocumentPane({ source, content, sourceType, pane, active, on
             }}
           >
             <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>
-              Select text first, then drag a code onto it
+              {t('viewer.selectFirst')}
             </span>
           </div>
         )}
@@ -479,10 +536,10 @@ export function TextDocumentPane({ source, content, sourceType, pane, active, on
               useNewCodeTriggerStore.getState().request()
             }}
           >
-            New Code
+            {t('viewer.newCode')}
           </div>
           <div className="context-menu-separator" />
-          {/* If there's a pending text selection, show hotkeyed codes for quick apply */}
+          {/* If there's a pending text selection, list every code to apply */}
           {contextMenu.context.pendingSelection && (
             <>
               <div
@@ -494,48 +551,16 @@ export function TextDocumentPane({ source, content, sourceType, pane, active, on
                   userSelect: 'none'
                 }}
               >
-                Apply Code
+                {t('viewer.applyCode')}
               </div>
-              <div
-                style={{
-                  padding: '0 14px 6px',
-                  fontSize: 11,
-                  color: 'var(--text-muted)',
-                  lineHeight: 1.4,
-                  maxWidth: 220,
-                  userSelect: 'none'
+              <ApplyCodeMenuList
+                codes={flatCodes}
+                itemTitle={lockedBy ? checkoutLockedTitle(lockedBy) : undefined}
+                onApply={(guid) => {
+                  if (lockedBy) { promptCheckoutLocked(); return }
+                  handleApplyCodeFromMenu(guid)
                 }}
-              >
-                To apply any code, select content and drag the code from the Code Browser to the selection.
-              </div>
-              {hotkeyCodes.map(({ code }) => (
-                <div
-                  key={code.guid}
-                  className="context-menu-item"
-                  title={lockedBy ? checkoutLockedTitle(lockedBy) : undefined}
-                  onClick={() => {
-                    if (lockedBy) { promptCheckoutLocked(); return }
-                    handleApplyCodeFromMenu(code.guid)
-                  }}
-                >
-                  <span
-                    className="color-pip"
-                    style={{ background: code.color || '#888' }}
-                  />
-                  <span style={{ flex: 1 }}>{code.name}</span>
-                  <span style={{ fontSize: 10, color: 'var(--menu-fg-muted)', marginLeft: 12 }}>
-                    {modKey(code.hotkey!)}
-                  </span>
-                </div>
-              ))}
-              {hotkeyCodes.length === 0 && (
-                <div
-                  className="context-menu-item"
-                  style={{ color: 'var(--text-muted)', pointerEvents: 'none' }}
-                >
-                  No hotkeys assigned — right-click a code to assign one
-                </div>
-              )}
+              />
             </>
           )}
 
@@ -557,7 +582,7 @@ export function TextDocumentPane({ source, content, sourceType, pane, active, on
                   userSelect: 'none'
                 }}
               >
-                Remove Code
+                {t('viewer.removeCode')}
               </div>
               {contextMenu.context.existingCodings.map((ec) => {
                 const code = findCode(ec.codeGuid)
@@ -578,7 +603,7 @@ export function TextDocumentPane({ source, content, sourceType, pane, active, on
                       className="color-pip"
                       style={{ background: code?.color || '#888' }}
                     />
-                    {code?.name ?? 'Unknown'}
+                    {code?.name ?? t('common.unknown')}
                   </div>
                 )
               })}
@@ -599,7 +624,7 @@ export function TextDocumentPane({ source, content, sourceType, pane, active, on
                   useQuoteStore.getState().addQuote(sourceGuid, source.name, ps.startCp, ps.endCp, ps.selectedText)
                 }}
               >
-                Add as Quote
+                {t('viewer.addAsQuote')}
               </div>
             </>
           )}
@@ -622,7 +647,7 @@ export function TextDocumentPane({ source, content, sourceType, pane, active, on
                   )
                 }}
               >
-                Add Selection Memo
+                {t('viewer.addSelectionMemo')}
               </div>
             </>
           )}
@@ -640,7 +665,7 @@ export function TextDocumentPane({ source, content, sourceType, pane, active, on
                   userSelect: 'none'
                 }}
               >
-                Delete Memo
+                {t('viewer.deleteMemo')}
               </div>
               {contextMenu.context.overlappingMemos.map((m) => (
                 <div

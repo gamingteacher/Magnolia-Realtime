@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 // ES imports so Vite bundles and hashes the assets — plain `url(./assets/…)`
 // strings only resolve in dev; production builds drop them.
 // Welcome background lives in graphic_files/ alongside the icon sources so
@@ -9,6 +10,7 @@ import magnoliaUrl from '../../assets/magnoliaqda-welcome.svg'
 import { CloudConnectDialog } from './CloudConnectDialog'
 
 export function WelcomeScreen() {
+  const { t } = useTranslation()
   const [recentProjects, setRecentProjects] = useState<{ name: string; path: string }[]>([])
   const [cloudConnectOpen, setCloudConnectOpen] = useState(false)
 
@@ -93,7 +95,7 @@ export function WelcomeScreen() {
               fontWeight: 600,
               color: 'var(--text-secondary)'
             }}>
-              Recent Projects
+              {t('welcome.recentProjects')}
             </div>
             {recentProjects.length > 0 && (
               <button
@@ -101,14 +103,14 @@ export function WelcomeScreen() {
                   window.api.sendWelcomeAction('clear-recent')
                   setRecentProjects([])
                 }}
-                title="Clear recent projects"
+                title={t('welcome.clearTitle')}
                 className="secondary"
                 style={{
                   fontSize: 11,
                   padding: '2px 8px'
                 }}
               >
-                Clear
+                {t('welcome.clear')}
               </button>
             )}
           </div>
@@ -127,7 +129,7 @@ export function WelcomeScreen() {
                 textAlign: 'center',
                 fontStyle: 'italic'
               }}>
-                No recent projects yet
+                {t('welcome.noRecent')}
               </div>
             ) : (
               recentProjects.map((proj, i) => (
@@ -161,27 +163,27 @@ export function WelcomeScreen() {
             onClick={() => window.api.sendWelcomeAction('quit')}
             style={{ flex: 1, padding: '7px 12px', fontSize: 12, fontWeight: 600 }}
           >
-            Quit
+            {t('welcome.quit')}
           </button>
           <button
             className="secondary"
             onClick={() => window.api.sendWelcomeAction('open-project')}
             style={{ flex: 1, padding: '7px 12px', fontSize: 12, fontWeight: 600 }}
           >
-            Open…
+            {t('welcome.open')}
           </button>
           <button
             onClick={() => window.api.sendWelcomeAction('new-project')}
             style={{ flex: 1, padding: '7px 12px', fontSize: 12, fontWeight: 600 }}
           >
-            New
+            {t('welcome.new')}
           </button>
           <button
             className="secondary"
             onClick={() => setCloudConnectOpen(true)}
             style={{ flex: 1, padding: '7px 8px', fontSize: 12, fontWeight: 600 }}
           >
-            Sign in / Sync…
+            {t('sync.signInSync')}
           </button>
         </div>
 
@@ -207,10 +209,10 @@ export function WelcomeScreen() {
             onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-secondary)')}
           >
             <span aria-hidden>♥</span>
-            Sponsor Magnolia's development
+            {t('welcome.sponsor')}
           </span>
           <span style={{ fontSize: 11.5, color: 'var(--text-secondary)', textAlign: 'center' }}>
-            Use Magnolia at your own risk.
+            {t('welcome.ownRisk')}
           </span>
         </div>
       </div>
@@ -223,7 +225,7 @@ export function WelcomeScreen() {
       <div style={{
         position: 'absolute',
         bottom: 10,
-        right: 14,
+        insetInlineEnd: 14,
         fontSize: 11,
         fontWeight: 500,
         color: 'rgba(255, 255, 255, 0.9)',

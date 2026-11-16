@@ -152,6 +152,16 @@ describe('countWords', () => {
     expect([...countWords(['The cows and the sheep'], wordFilter('', 'the, and')).keys()]).toEqual(['cows', 'sheep'])
     expect([...countWords(['The cows and the sheep'], wordFilter('sheep', '')).keys()]).toEqual(['sheep'])
   })
+
+  it('keeps accented letters in their words', () => {
+    const words = [...countWords(['Café, élève; één geïnteresseerd não está. Don\'t'], wordFilter('', '')).keys()]
+    expect(words).toEqual(['café', 'élève', 'één', 'geïnteresseerd', 'não', 'está', "don't"])
+  })
+
+  it('reads words in other scripts, with their marks', () => {
+    const words = [...countWords(['الطلاب يَدرُسون، والمدرسة؟ Студенты учатся.'], wordFilter('', '')).keys()]
+    expect(words).toEqual(['الطلاب', 'يَدرُسون', 'والمدرسة', 'студенты', 'учатся'])
+  })
 })
 
 describe('wordCondition', () => {
@@ -208,9 +218,15 @@ describe('countPhrases', () => {
     expect(countPhrases(['mental, health', 'mental\nhealth', 'mental  health', 'well-being'], 2, wordFilter('', ''), 1)).toEqual([])
   })
 
-  it('keeps inner apostrophes and ignores words touching digits', () => {
+  it('keeps inner apostrophes and words with digits in them', () => {
     expect(countPhrases(['they don\u2019t know', 'covid19 vaccine rollout'], 2, wordFilter('', ''), 1).map((r) => r.phrase).sort())
-      .toEqual(['don\u2019t know', 'they don\u2019t', 'vaccine rollout'])
+      .toEqual(['covid19 vaccine', 'don\u2019t know', 'they don\u2019t', 'vaccine rollout'])
+  })
+
+  it('reads Chinese, which has no spaces between words', () => {
+    const texts = ['我们的学生很喜欢这个大学。我们的学生很努力。']
+    expect(countPhrases(texts, 2, wordFilter('', ''), 2).map((r) => r.phrase)).toEqual(['我们的', '的学生'])
+    expect([...countWords(texts, wordFilter('', '的')).keys()]).toContain('学生')
   })
 
   it('applies the include list and the minimum count', () => {

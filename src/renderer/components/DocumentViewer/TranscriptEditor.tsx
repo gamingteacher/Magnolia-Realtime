@@ -23,8 +23,13 @@ import { SpeakerCodingDialog, type SpeakerAssignment } from './SpeakerCodingDial
 import type { Code, Memo, MemoEditInitData, PlainTextSelection } from '../../models/types'
 import { useNewCodeTriggerStore } from '../../stores/new-code-trigger-store'
 import { exportPdfWithHeader, buildPdfDocument, escHtml } from '../../utils/pdf-export'
-import { modKey } from '../../utils/platform'
+import { DocumentToolbarPortal, ExportMenuButton, toolbarButtonStyle, usePdfExportItems } from './DocumentToolbar'
 import { useRememberedScroll } from '../../utils/use-remembered-scroll'
+import { SelectionMenuButton, textSelectionAnchor } from './SelectionMenuButton'
+import { ApplyCodeMenuList } from './ApplyCodeMenuList'
+import { useTranslation } from 'react-i18next'
+import { t, formatDateTime } from '../../i18n'
+import { digitKey } from '../../utils/keys'
 
 interface Props {
   sourceGuid: string
@@ -73,9 +78,9 @@ function buildTranscriptHtml(
   content: string,
   lineTimes?: Record<string, number>
 ): string {
-  const now = new Date().toLocaleString()
+  const now = formatDateTime(new Date())
   const baseName = sourceName.replace(/\.[^.]+$/, '')
-  const title = `${baseName} - Transcript`
+  const title = t('transcript.pdfTitle', { name: baseName })
   const lines = content.split('\n')
   const lineCount = lines.length
 
@@ -93,13 +98,13 @@ function buildTranscriptHtml(
   const extraCss = `
   .line { display: flex; padding: 2px 0; border-bottom: 1px solid #f0f0f0; }
   .line:last-child { border-bottom: none; }
-  .ts { font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; color: #888; width: 72px; min-width: 72px; flex-shrink: 0; padding-right: 12px; text-align: right; }
-  .text { flex: 1; white-space: pre-wrap; word-break: break-word; }
+  .ts { font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; color: #888; width: 72px; min-width: 72px; flex-shrink: 0; padding-inline-end: 12px; text-align: end; }
+  .text { flex: 1; white-space: pre-wrap; word-break: break-word; unicode-bidi: plaintext; }
 `
 
   return buildPdfDocument({
     title,
-    subtitle: `${lineCount} line${lineCount !== 1 ? 's' : ''} &mdash; exported ${escHtml(now)}`,
+    subtitle: escHtml(t('transcript.pdfSubtitle', { count: lineCount, date: now })),
     body,
     extraCss
   })
@@ -109,7 +114,26 @@ export function TranscriptEditor({
   sourceGuid, sourceName, content, selections, currentPlaybackTime,
   onTimestampClick, videoMode = false, lineTimes, externalHighlight
 }: Props) {
-  const [exportMenu, setExportMenu] = useState<{ x: number; y: number } | null>(null)
+  const { t } = useTranslation()
+  const transcriptSource = useDocumentStore((s) => s.sources.find((src) => src.guid === sourceGuid))
+  const download = (type: string, extension: string) => {
+    const blob = new Blob([content], { type })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url; a.download = sourceName.replace(/\.[^.]+$/, '') + `-${t('transcript.fileSuffix')}.${extension}`; a.click()
+    URL.revokeObjectURL(url)
+  }
+  // The plain PDF is the transcript's own layout, with its timestamps.
+  const pdfExport = usePdfExportItems(transcriptSource, content, {
+    plain: () => {
+      const html = buildTranscriptHtml(sourceName, content, lineTimes)
+      void exportPdfWithHeader(html, t('transcript.pdfTitle', { name: sourceName.replace(/\.[^.]+$/, '') }))
+    }
+  })
+  const exportItems = [
+    ...pdfExport.items,
+    { label: t('transcript.exportTxt'), run: () => download('text/plain', 'txt') },
+    { label: t('transcript.exportMarkdown'), run: () => download('text/markdown', 'md') }
+  ]
   const [isTranscribing, setIsTranscribing] = useState(false)
   const [speakerDialog, setSpeakerDialog] = useState<{ speakers: DetectedSpeaker[]; source: any } | null>(null)
   const updateSourceContent = useDocumentStore((s) => s.updateSourceContent)
@@ -218,11 +242,6 @@ export function TranscriptEditor({
     }
     return map
   }, [flatCodes])
-  const hotkeyCodes = useMemo(
-    () => flatCodes.filter(({ code }) => code.hotkey !== undefined)
-      .sort((a, b) => (a.code.hotkey ?? 0) - (b.code.hotkey ?? 0)),
-    [flatCodes]
-  )
 
   const applyCodingToRange = useCallback(
     (codeGuid: string, startCp: number, endCp: number, text: string) => {
@@ -328,16 +347,18 @@ export function TranscriptEditor({
     if (isTranscribing) return // No coding hotkeys in transcription mode
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!e.metaKey && !e.ctrlKey) return
-      const digit = parseInt(e.key, 10)
-      if (isNaN(digit) || digit < 0 || digit > 9) return
+      const digit = digitKey(e)
+      if (digit === null) return
       const code = hotkeyMap.get(digit)
       if (!code || !pendingSelection) return
       e.preventDefault()
       applyCodingToRange(code.guid, pendingSelection.startCp, pendingSelection.endCp, pendingSelection.selectedText)
     }
     window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isTranscribing, hotkeyMap, pendingSelection, applyCodingToRange])
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isTranscribing, hotkeyMap, pendingSelection, applyCodingToRange, sourceGuid])
 
   // Clear coding state when switching modes
   const toggleMode = useCallback(() => {
@@ -356,57 +377,45 @@ export function TranscriptEditor({
         }
       }}
     >
-      {/* Coding Mode toolbar — sits on the panel surface so the
-          viewer reads as a single continuous surface with the
-          surrounding tools. */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        padding: '4px 12px',
-        background: 'var(--bg-panel)',
-        borderBottom: '1px solid var(--border-color)',
-        gap: 8,
-        flexShrink: 0,
-        userSelect: 'none'
-      }}>
-        <button
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            width: 32,
-            height: 32,
-            padding: 0,
-            border: '1px solid var(--border-color)',
-            borderRadius: 'var(--radius-md)',
-            background: isTranscribing ? 'var(--accent)' : 'var(--bg-primary)',
-            color: isTranscribing ? '#fff' : 'var(--text-muted)',
-            cursor: 'pointer',
-            transition: 'background 0.15s, color 0.15s',
-            flexShrink: 0
-          }}
-          onClick={toggleMode}
-          title={isTranscribing ? 'Switch to Coding Mode' : 'Switch to Transcription Mode'}
+      {/* Coding Mode, Import and Export live in the document bar
+          (DocumentViewer), with the document's other controls. */}
+      <DocumentToolbarPortal slot="start">
+        {/* The mode's hint is its tooltip, so the bar stays one line. */}
+        <span
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0, fontSize: 11 }}
+          title={isTranscribing ? t('transcript.transcribingHint') : t('transcript.codingHint')}
         >
-          <Icon icon={faPenLine} />
-        </button>
-        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>
-          {isTranscribing ? 'Transcribing Mode' : 'Coding Mode'}
+          <button
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 26,
+              height: 26,
+              padding: 0,
+              border: '1px solid var(--border-color)',
+              borderRadius: 'var(--radius-sm)',
+              background: isTranscribing ? 'var(--accent)' : 'var(--bg-primary)',
+              color: isTranscribing ? '#fff' : 'var(--text-muted)',
+              cursor: 'pointer',
+              transition: 'background 0.15s, color 0.15s',
+              flexShrink: 0,
+              fontSize: 11
+            }}
+            onClick={toggleMode}
+            title={isTranscribing ? t('transcript.switchToCoding') : t('transcript.switchToTranscribing')}
+            aria-pressed={isTranscribing}
+          >
+            <Icon icon={faPenLine} />
+          </button>
+          <span style={{ fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>
+            {isTranscribing ? t('transcript.transcribingMode') : t('transcript.codingMode')}
+          </span>
         </span>
-        <span style={{ fontSize: 10, color: 'var(--text-muted)', flex: 1 }}>
-          {isTranscribing ? 'Type to transcribe. Coding is locked.' : 'Select text to apply codes, memos, and quotes.'}
-        </span>
+      </DocumentToolbarPortal>
+      <DocumentToolbarPortal slot="end">
         <button
-          style={{
-            padding: '3px 10px',
-            fontSize: 11,
-            fontWeight: 600,
-            border: '1px solid var(--border-color)',
-            borderRadius: 'var(--radius-sm)',
-            background: 'var(--bg-primary)',
-            color: 'var(--text-primary)',
-            cursor: 'pointer'
-          }}
+          style={toolbarButtonStyle}
           onClick={async () => {
             const result = await window.api.importTranscript()
             if (!result) return
@@ -425,7 +434,7 @@ export function TranscriptEditor({
               // language settings, …) as a document memo so it isn't lost when
               // the markup is stripped out.
               if (parsed.notes.length > 0) {
-                addMemo('document', 'Imported transcript notes', {
+                addMemo('document', t('transcript.importedNotes'), {
                   content: parsed.notes.join('\n\n'),
                   sourceGuids: [sourceGuid]
                 })
@@ -440,56 +449,12 @@ export function TranscriptEditor({
               updateSourceContent(sourceGuid, detectAndConvertTimestamps(result.content))
             }
           }}
-          title="Import a transcript file (.txt, .md, .srt, .vtt, .html)"
+          title={t('transcript.importTitle')}
         >
-          Import
+          {t('common.import')}
         </button>
-        <div style={{ position: 'relative', flexShrink: 0 }}>
-          <button
-            style={{
-              padding: '3px 10px',
-              fontSize: 11,
-              fontWeight: 600,
-              border: '1px solid var(--border-color)',
-              borderRadius: 'var(--radius-sm)',
-              background: 'var(--bg-primary)',
-              color: 'var(--text-primary)',
-              cursor: 'pointer'
-            }}
-            onClick={(e) => setExportMenu(exportMenu ? null : { x: e.currentTarget.getBoundingClientRect().right, y: e.currentTarget.getBoundingClientRect().bottom })}
-            title="Export Transcript"
-          >
-            Export
-          </button>
-          {exportMenu && (
-            <>
-              <div style={{ position: 'fixed', inset: 0, zIndex: 99 }} onClick={() => setExportMenu(null)} />
-              <div className="context-menu" style={{ position: 'fixed', left: exportMenu.x, top: exportMenu.y, transform: 'translateX(-100%)', zIndex: 100, minWidth: 140 }}>
-                <div className="context-menu-item" onClick={() => {
-                  setExportMenu(null)
-                  const blob = new Blob([content], { type: 'text/plain' })
-                  const url = URL.createObjectURL(blob)
-                  const a = document.createElement('a'); a.href = url; a.download = sourceName.replace(/\.[^.]+$/, '') + '-transcript.txt'; a.click()
-                  URL.revokeObjectURL(url)
-                }}>Export as TXT</div>
-                <div className="context-menu-item" onClick={() => {
-                  setExportMenu(null)
-                  const blob = new Blob([content], { type: 'text/markdown' })
-                  const url = URL.createObjectURL(blob)
-                  const a = document.createElement('a'); a.href = url; a.download = sourceName.replace(/\.[^.]+$/, '') + '-transcript.md'; a.click()
-                  URL.revokeObjectURL(url)
-                }}>Export as Markdown</div>
-                <div className="context-menu-item" onClick={async () => {
-                  setExportMenu(null)
-                  const html = buildTranscriptHtml(sourceName, content, lineTimes)
-                  const baseName = sourceName.replace(/\.[^.]+$/, '')
-                  await exportPdfWithHeader(html, `${baseName} - Transcript`)
-                }}>Export as PDF</div>
-              </div>
-            </>
-          )}
-        </div>
-      </div>
+        <ExportMenuButton items={exportItems} busy={pdfExport.busy} />
+      </DocumentToolbarPortal>
 
       {/* Content area */}
       {isTranscribing ? (
@@ -551,6 +516,7 @@ export function TranscriptEditor({
             if (data) { try { handleDrop([JSON.parse(data).guid]) } catch {} }
           }}
         >
+          {pendingSelection && <SelectionMenuButton containerRef={codingAreaRef} anchor={textSelectionAnchor} />}
           {content ? (
             <CodedTextView
               text={content}
@@ -569,7 +535,7 @@ export function TranscriptEditor({
             />
           ) : (
             <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-muted)', fontSize: 'var(--font-size-sm)' }}>
-              No transcript yet. Switch to Transcribing mode to begin.
+              {t('transcript.empty')}
             </div>
           )}
 
@@ -580,7 +546,7 @@ export function TranscriptEditor({
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               background: 'rgba(124, 111, 240, 0.08)', pointerEvents: 'none', zIndex: 10
             }}>
-              <span style={{ color: 'var(--accent)', fontWeight: 600, fontSize: 14 }}>Drop code to apply to selection</span>
+              <span style={{ color: 'var(--accent)', fontWeight: 600, fontSize: 14 }}>{t('viewer.dropToApply')}</span>
             </div>
           )}
           {isDragOver && !pendingSelection && (
@@ -589,7 +555,7 @@ export function TranscriptEditor({
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               background: 'rgba(224, 80, 80, 0.08)', pointerEvents: 'none', zIndex: 10
             }}>
-              <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>Select text first, then drag a code onto it</span>
+              <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>{t('viewer.selectFirst')}</span>
             </div>
           )}
         </div>
@@ -602,31 +568,19 @@ export function TranscriptEditor({
             useNewCodeTriggerStore.getState().request()
             setContextMenu(null)
           }}>
-            New Code
+            {t('viewer.newCode')}
           </div>
           <div className="context-menu-separator" />
           {contextMenu.context.pendingSelection && (
             <>
-              <div style={{ padding: '4px 14px', fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, userSelect: 'none' }}>Apply Code</div>
-              <div style={{ padding: '0 14px 6px', fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.4, maxWidth: 220, userSelect: 'none' }}>
-                To apply any code, select content and drag the code from the Code Browser to the selection.
-              </div>
-              {hotkeyCodes.map(({ code }) => (
-                <div key={code.guid} className="context-menu-item" onClick={() => handleApplyCode(code.guid)}>
-                  <span className="color-pip" style={{ background: code.color || '#888' }} />
-                  <span style={{ flex: 1 }}>{code.name}</span>
-                  <span style={{ fontSize: 10, color: 'var(--menu-fg-muted)', marginLeft: 12 }}>{modKey(code.hotkey!)}</span>
-                </div>
-              ))}
-              {hotkeyCodes.length === 0 && (
-                <div className="context-menu-item" style={{ color: 'var(--menu-fg-muted)', pointerEvents: 'none' }}>No hotkeys assigned</div>
-              )}
+              <div style={{ padding: '4px 14px', fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, userSelect: 'none' }}>{t('viewer.applyCode')}</div>
+              <ApplyCodeMenuList codes={flatCodes} onApply={handleApplyCode} />
             </>
           )}
           {contextMenu.context.pendingSelection && contextMenu.context.existingCodings.length > 0 && <div className="context-menu-separator" />}
           {contextMenu.context.existingCodings.length > 0 && (
             <>
-              <div style={{ padding: '4px 14px', fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, userSelect: 'none' }}>Remove Code</div>
+              <div style={{ padding: '4px 14px', fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, userSelect: 'none' }}>{t('viewer.removeCode')}</div>
               {contextMenu.context.existingCodings.map((ec) => {
                 const code = findCode(ec.codeGuid)
                 return (
@@ -636,7 +590,7 @@ export function TranscriptEditor({
                     onMouseLeave={() => setMenuHighlight(null)}
                   >
                     <span className="color-pip" style={{ background: code?.color || '#888' }} />
-                    {code?.name ?? 'Unknown'}
+                    {code?.name ?? t('common.unknown')}
                   </div>
                 )
               })}
@@ -649,7 +603,7 @@ export function TranscriptEditor({
                 const ps = contextMenu.context.pendingSelection!
                 useQuoteStore.getState().addQuote(sourceGuid, useDocumentStore.getState().sources.find((s) => s.guid === sourceGuid)?.name || '', ps.startCp, ps.endCp, ps.selectedText)
                 setContextMenu(null)
-              }}>Add as Quote</div>
+              }}>{t('viewer.addAsQuote')}</div>
             </>
           )}
           {/* Memos in transcript contexts must attach to a range — no
@@ -660,17 +614,17 @@ export function TranscriptEditor({
               <div className="context-menu-separator" />
               <div className="context-menu-item" onClick={() => {
                 handleCreateMemo(contextMenu.context.pendingSelection!.startCp, contextMenu.context.pendingSelection!.endCp)
-              }}>Add Selection Memo</div>
+              }}>{t('viewer.addSelectionMemo')}</div>
             </>
           )}
           {contextMenu.context.overlappingMemos && contextMenu.context.overlappingMemos.length > 0 && (
             <>
               <div className="context-menu-separator" />
-              <div style={{ padding: '4px 14px', fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, userSelect: 'none' }}>Delete Memo</div>
+              <div style={{ padding: '4px 14px', fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, userSelect: 'none' }}>{t('viewer.deleteMemo')}</div>
               {contextMenu.context.overlappingMemos.map((m) => (
                 <div key={m.guid} className="context-menu-item" style={{ color: 'var(--menu-fg-danger)' }}
                   onClick={() => { removeMemo(m.guid); setContextMenu(null); setMenuHighlight(null) }}>
-                  {m.title || 'Untitled Memo'}
+                  {m.title || t('memos.untitled')}
                 </div>
               ))}
             </>
@@ -724,6 +678,7 @@ function TranscriptionArea({
   onContentChange,
   onLineTimesChange
 }: TranscriptionAreaProps) {
+  const { t } = useTranslation()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const preEditRef = useRef<{ content: string; selStart: number } | null>(null)
 
@@ -823,8 +778,8 @@ function TranscriptionArea({
         userSelect: 'none',
         flexShrink: 0
       }}>
-        Type as the {mediaKind} plays — each new line is silently tagged with the playhead time.
-        Press Enter to start a new line. Codes attach to time ranges on the track above.
+        {mediaKind === 'video' ? t('transcript.typingHintVideo') : t('transcript.typingHintAudio')}{' '}
+        {t('transcript.enterHint')}
       </div>
       <textarea
         ref={textareaRef}
@@ -832,7 +787,7 @@ function TranscriptionArea({
         onBeforeInput={handleBeforeInput}
         onKeyDown={handleKeyDownSnapshot}
         onChange={handleChange}
-        placeholder="Begin transcribing…"
+        placeholder={t('transcript.placeholder')}
         spellCheck={true}
         style={{
           flex: 1,

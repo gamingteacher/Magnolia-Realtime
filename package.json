@@ -1,6 +1,6 @@
 {
   "name": "magnolia",
-  "version": "2.0.2",
+  "version": "2.1.0",
   "description": "Open-source qualitative data analysis software",
   "author": {
     "name": "Cale Davis",
@@ -30,7 +30,11 @@
     "release:mac": "node scripts/release.mjs release mac",
     "release:win": "node scripts/release.mjs release win",
     "release:linux": "node scripts/release.mjs release linux",
-    "release:finish": "node scripts/release.mjs finish"
+    "release:finish": "node scripts/release.mjs finish",
+    "i18n:review-export": "node scripts/translation-review.mjs export",
+    "i18n:review-import": "node scripts/translation-review.mjs import",
+    "i18n:sync": "node scripts/i18n-sync.mjs",
+    "layout-check": "node scripts/layout-check/run.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0",
@@ -46,6 +50,7 @@
     "@types/diff": "^7.0.2",
     "d3-force": "^3.0.0",
     "diff": "^9.0.0",
+    "i18next": "26.5.7",
     "jszip": "^3.10.1",
     "lucide-react": "^1.20.0",
     "marked": "^17.0.5",
@@ -53,6 +58,7 @@
     "pdfjs-dist": "^4.10.38",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-i18next": "17.1.5",
     "react-resizable-panels": "^2.1.7",
     "tiptap-markdown": "^0.9.0",
     "uuid": "^9.0.1",

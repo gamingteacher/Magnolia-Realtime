@@ -1,6 +1,6 @@
 [package]
 name = "magnolia"
-version = "2.0.2"
+version = "2.1.0"
 description = "Open-source qualitative data analysis software"
 authors = ["Cale Davis <cale@caledavis.eu>"]
 license = "EUPL-1.2"
@@ -35,10 +35,14 @@ aes-gcm = "0.10"
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 sha2 = "0.10"
+icu_plurals = "2.4"
+icu_decimal = "2.4"
+icu_locale_core = "2.4"
+fixed_decimal = "0.7.3"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
-objc2-foundation = { version = "0.3", features = ["NSString", "NSURL", "NSDictionary", "NSValue", "NSGeometry", "NSUserDefaults"] }
+objc2-foundation = { version = "0.3", features = ["NSString", "NSURL", "NSArray", "NSDictionary", "NSValue", "NSGeometry", "NSUserDefaults"] }
 objc2-app-kit = { version = "0.3", features = ["NSPrintInfo", "NSPrintOperation", "NSView", "NSWindow", "NSResponder", "NSApplication", "NSButton", "NSControl"] }
 objc2-web-kit = { version = "0.3", features = ["WKWebView", "objc2-app-kit"] }
 

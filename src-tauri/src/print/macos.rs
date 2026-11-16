@@ -39,7 +39,7 @@ pub fn print(
         })
         .map_err(|e| e.to_string())?;
     rx.recv_timeout(Duration::from_secs(30))
-        .map_err(|_| "Printing did not start".to_string())??;
+        .map_err(|_| crate::i18n::t("print.didNotStart"))??;
     wait_for_completion(app, out)
 }
 
@@ -99,7 +99,7 @@ fn wait_for_completion(app: &AppHandle, out: &Path) -> Result<(), String> {
     loop {
         std::thread::sleep(Duration::from_millis(150));
         if Instant::now() > deadline {
-            return Err("Timed out while printing to PDF".into());
+            return Err(crate::i18n::t("print.pdfTimedOut"));
         }
         let size = std::fs::metadata(out)
             .ok()

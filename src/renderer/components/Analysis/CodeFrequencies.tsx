@@ -1,4 +1,5 @@
-import { useState, useMemo, useCallback, useRef } from 'react'
+import { Trans } from 'react-i18next'
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import type { AnalysisInitData, SurveyCellScopeArgs, SurveyEntityRef } from '../../models/types'
 import { Icon, faChartBar, faCircleInfo } from '../Icon'
 import { toolColors } from '../../utils/tool-colors'
@@ -8,7 +9,9 @@ import {
 } from '../DocumentSelector/DocumentSelector'
 import { DocumentsSection } from './DocumentsSection'
 import { documentFilterFromConfig } from './documents-filter'
-import { truncate, codeFrequencyInSource, toCsv, resolveFilteredSources, applySurveyCellScope } from './analysis-helpers'
+import { truncate, codeFrequencyInSource, sizeEstimated, isAverageColumn, toCsv, resolveFilteredSources, applySurveyCellScope } from './analysis-helpers'
+import { usePageSizes } from '../../utils/region-sizes'
+import { useDocumentStore } from '../../stores/document-store'
 import { generateGuid } from '../../utils/guid'
 import {
   type GroupByEntry,
@@ -30,6 +33,8 @@ import { renameSavedAnalysis } from '../../utils/rename-saved-analysis'
 import { useToolDirtyState } from '../../hooks/use-tool-dirty-state'
 import { useRegisterToolSave } from '../../hooks/use-register-tool-save'
 import { useThemeSvgColors, SVG_FONT_FAMILY } from '../../utils/use-theme-svg-colors'
+import { useTranslation } from 'react-i18next'
+import { formatPercent, t as tr } from '../../i18n'
 
 interface Props {
   data: AnalysisInitData
@@ -53,7 +58,16 @@ interface Props {
   }
 }
 
+/** A column's heading: a column of several documents shows the average of
+ *  their percentages, and says so. The name is shortened to `max`
+ *  characters, the "(average)" kept whole. */
+function columnLabel(col: { label: string; sourceGuids: string[] }, max?: number): string {
+  const name = max ? truncate(col.label, max) : col.label
+  return isAverageColumn(col) ? tr('codeFreq.averageLabel', { label: name }) : name
+}
+
 export function CodeFrequencies({ data: propData, savedConfig, inTab }: Props) {
+  const { t } = useTranslation()
   const [docFilter, setDocFilter] = useState<DocumentFilterState>(documentFilterFromConfig(savedConfig))
   const [codeGuids, setCodeGuids] = useState<string[]>(savedConfig?.codeGuids ?? [])
   const [groupBy, setGroupBy] = useState<GroupByEntry[]>(
@@ -65,9 +79,11 @@ export function CodeFrequencies({ data: propData, savedConfig, inTab }: Props) {
   // respondent's coded cells). No-op when no tag constraint is active.
   // The survey questions and respondents chosen in From these documents
   // narrow it further.
+  // Image and page sizes, read from the files, measure box codings by area.
+  const pageSizes = usePageSizes(useDocumentStore((s) => s.sources))
   const data = useMemo(() => {
-    return applySurveyCellScope({ ...propData, ...live }, docFilter)
-  }, [propData, live, docFilter])
+    return applySurveyCellScope({ ...propData, ...live, pageSizes }, docFilter)
+  }, [propData, live, pageSizes, docFilter])
   const [dropOver, setDropOver] = useState(false)
   const [tagDropOver, setTagDropOver] = useState(false)
   const chartRef = useRef<SVGSVGElement>(null)
@@ -76,6 +92,24 @@ export function CodeFrequencies({ data: propData, savedConfig, inTab }: Props) {
   const [analysisName, setAnalysisName] = useState(savedConfig?.name ?? '')
   const [showSaveDialog, setShowSaveDialog] = useState(false)
   const [showInfo, setShowInfo] = useState(false)
+  // The info panel is placed against the window, not the Results box
+  // (which would cut it off), and kept inside it.
+  const infoButtonRef = useRef<HTMLButtonElement>(null)
+  const [infoPlace, setInfoPlace] = useState<{ left: number; top: number; width: number; maxHeight: number } | null>(null)
+  useEffect(() => {
+    if (!showInfo || !infoButtonRef.current) return
+    const update = () => {
+      const r = infoButtonRef.current!.getBoundingClientRect()
+      const width = Math.min(400, window.innerWidth - 32)
+      const rtl = getComputedStyle(infoButtonRef.current!).direction === 'rtl'
+      const left = rtl ? Math.min(r.left, window.innerWidth - width - 16) : Math.max(16, r.right - width)
+      const top = r.bottom + 6
+      setInfoPlace({ left, top, width, maxHeight: Math.max(160, window.innerHeight - top - 16) })
+    }
+    update()
+    window.addEventListener('resize', update)
+    return () => window.removeEventListener('resize', update)
+  }, [showInfo])
   const isExisting = !!savedConfig?.guid
 
   // Dirty tracking (see useToolDirtyState — baseline is the saved
@@ -136,6 +170,13 @@ export function CodeFrequencies({ data: propData, savedConfig, inTab }: Props) {
   const { columns, headerGroups, hasGroupedHeader } = useMemo(
     () => buildSurveyAwareColumns(groupBy, data, filteredSourceGuids, sourceMap, { includeSubtotals: false }),
     [filteredSourceGuids, groupBy, data, sourceMap]
+  )
+
+  // Documents whose size had to be estimated (an image or page that
+  // couldn't be read, a recording of unknown length), for the note.
+  const estimatedNames = useMemo(
+    () => filteredSourceGuids.filter((g) => sizeEstimated(data, g)).map((g) => sourceMap.get(g) ?? ''),
+    [filteredSourceGuids, data, sourceMap]
   )
 
   // Grid: percentage values
@@ -199,8 +240,8 @@ export function CodeFrequencies({ data: propData, savedConfig, inTab }: Props) {
   }, [])
 
   const handleExportCsv = useCallback(() => {
-    const colNames = columns.map((c) => c.label)
-    const rows: string[][] = [['Code', ...colNames]]
+    const colNames = columns.map((c) => columnLabel(c))
+    const rows: string[][] = [[t('analysis.code'), ...colNames]]
     for (let i = 0; i < codeGuids.length; i++) {
       rows.push([codeMap.get(codeGuids[i])?.name || '', ...grid[i].map((v) => v.toFixed(1) + '%')])
     }
@@ -266,7 +307,7 @@ export function CodeFrequencies({ data: propData, savedConfig, inTab }: Props) {
   const labelFontSize = Math.min(13, Math.max(8, Math.round(chartH / 30)))
   const labelMaxChars = Math.min(20, Math.max(10, Math.round(chartH / 22)))
 
-  const marginLeft = 40
+  const marginInlineStart = 40
   // Reserve enough room below the x-axis for the (possibly larger)
   // code label text. `max(40, …)` keeps the original spacing on
   // small charts while still growing for taller fonts.
@@ -296,7 +337,7 @@ export function CodeFrequencies({ data: propData, savedConfig, inTab }: Props) {
     const CHAR_W = 5.5
 
     const items = columns.map((col, ci) => {
-      const label = truncate(col.label, 20)
+      const label = columnLabel(col, 20)
       return {
         color: seriesColors[ci % seriesColors.length],
         label,
@@ -351,16 +392,16 @@ export function CodeFrequencies({ data: propData, savedConfig, inTab }: Props) {
       <div style={{ padding: '14px 20px 6px', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-secondary)' }}>
           <Icon icon={faChartBar} className="analysis-header-icon" style={{ fontSize: 16 }} />
-          Code Frequencies{isExisting ? ':' : ''}
+          {t('tools.codeFrequencies.label')}{isExisting ? ':' : ''}
           {isExisting && <EditableTitleSuffix name={analysisName} onRename={handleRename} />}
         </h2>
         <div style={{ flex: 1 }} />
         <button className="secondary" style={{ fontSize: 11, padding: '4px 14px' }} onClick={() => inTab ? inTab.onClose() : window.close()}>
-          Close
+          {t('common.close')}
         </button>
         {isExisting && dirty && (
           <button className="secondary" style={{ fontSize: 11, padding: '4px 14px' }} onClick={handleDiscard}>
-            Discard Changes
+            {t('common.discardChanges')}
           </button>
         )}
         {isExisting ? (
@@ -369,11 +410,11 @@ export function CodeFrequencies({ data: propData, savedConfig, inTab }: Props) {
             disabled={!dirty}
             onClick={() => { handleSave(analysisName) }}
           >
-            {dirty ? 'Update Analysis' : 'Saved'}
+            {dirty ? t('analysis.update') : t('analysis.saved')}
           </button>
         ) : (
           <button style={{ fontSize: 11, padding: '4px 14px' }} onClick={() => setShowSaveDialog(true)}>
-            Save Analysis
+            {t('analysis.save')}
           </button>
         )}
         {/* Clearance for the floating MemoFab. */}
@@ -383,24 +424,24 @@ export function CodeFrequencies({ data: propData, savedConfig, inTab }: Props) {
       {showSaveDialog && (
         <div className="modal-overlay">
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>Save Analysis</h2>
+            <h2>{t('analysis.save')}</h2>
             <input
               autoFocus
               type="text"
               defaultValue={analysisName}
-              placeholder="Analysis name"
+              placeholder={t('analysis.namePlaceholder')}
               style={{ width: '100%' }}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') handleSave((e.target as HTMLInputElement).value.trim() || 'Untitled')
+                if (e.key === 'Enter') handleSave((e.target as HTMLInputElement).value.trim() || t('common.untitled'))
                 if (e.key === 'Escape') setShowSaveDialog(false)
               }}
             />
             <div className="modal-actions">
-              <button className="secondary" onClick={() => setShowSaveDialog(false)}>Cancel</button>
+              <button className="secondary" onClick={() => setShowSaveDialog(false)}>{t('common.cancel')}</button>
               <button onClick={(e) => {
                 const input = (e.target as HTMLElement).parentElement!.parentElement!.querySelector('input') as HTMLInputElement
-                handleSave(input.value.trim() || 'Untitled')
-              }}>Save</button>
+                handleSave(input.value.trim() || t('common.untitled'))
+              }}>{t('common.save')}</button>
             </div>
           </div>
         </div>
@@ -424,9 +465,9 @@ export function CodeFrequencies({ data: propData, savedConfig, inTab }: Props) {
           onDrop={handleTagDrop}
         >
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, marginBottom: groupBy.length > 0 ? 8 : 0, position: 'relative', zIndex: 1 }}>
-            <span style={{ fontSize: 'var(--font-size-lg)', fontWeight: 600, color: 'var(--text-secondary)' }}>Grouped by</span>
+            <span style={{ fontSize: 'var(--font-size-lg)', fontWeight: 600, color: 'var(--text-secondary)' }}>{t('analysis.groupedBy')}</span>
             <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-              Drag tags, categories, or folders here
+              {t('analysis.dragGroupHint')}
             </span>
           </div>
           <div style={{ position: 'relative', zIndex: 1 }}>
@@ -463,15 +504,16 @@ export function CodeFrequencies({ data: propData, savedConfig, inTab }: Props) {
           onDrop={(e) => { setDropOver(false); handleDrop(e) }}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, position: 'relative', zIndex: 1 }}>
-            <span style={{ fontSize: 'var(--font-size-lg)', fontWeight: 600, color: 'var(--text-secondary)' }}>Results</span>
+            <span style={{ fontSize: 'var(--font-size-lg)', fontWeight: 600, color: 'var(--text-secondary)' }}>{t('analysis.results')}</span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative' }}>
               <button className="secondary" style={{ fontSize: 10, padding: '3px 8px' }} onClick={handleExportCsv} disabled={codeGuids.length === 0}>
-                Export CSV
+                {t('analysis.exportCsv')}
               </button>
               <button
+                ref={infoButtonRef}
                 onClick={() => setShowInfo((v) => !v)}
-                title="How are these percentages calculated?"
-                aria-label="How are these percentages calculated?"
+                title={t('codeFreq.howCalculated')}
+                aria-label={t('codeFreq.howCalculated')}
                 style={{
                   background: 'none', border: 'none', padding: 2,
                   color: showInfo ? 'var(--accent)' : 'var(--text-muted)',
@@ -480,7 +522,7 @@ export function CodeFrequencies({ data: propData, savedConfig, inTab }: Props) {
               >
                 <Icon icon={faCircleInfo} style={{ fontSize: 14 }} />
               </button>
-              {showInfo && (
+              {showInfo && infoPlace && (
                 <>
                   {/* Click-outside dismiss */}
                   <div
@@ -489,8 +531,8 @@ export function CodeFrequencies({ data: propData, savedConfig, inTab }: Props) {
                   />
                   <div
                     style={{
-                      position: 'absolute', top: '100%', right: 0, marginTop: 6,
-                      width: 360, padding: '12px 14px',
+                      position: 'fixed', left: infoPlace.left, top: infoPlace.top,
+                      width: infoPlace.width, maxHeight: infoPlace.maxHeight, overflow: 'auto', padding: '12px 14px',
                       background: 'var(--bg-panel)',
                       border: '1px solid var(--border-color)',
                       borderRadius: 'var(--radius-md)',
@@ -502,18 +544,21 @@ export function CodeFrequencies({ data: propData, savedConfig, inTab }: Props) {
                     }}
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 6 }}>How frequencies are calculated</div>
+                    <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 6 }}>{t('codeFreq.howHeading')}</div>
                     <div style={{ color: 'var(--text-secondary)', marginBottom: 8 }}>
-                      Each cell shows the proportion of one source covered by one code, expressed as a percentage. The denominator depends on the source kind:
+                      {t('codeFreq.howIntro')}
                     </div>
                     <ul style={{ margin: '0 0 8px 16px', padding: 0, color: 'var(--text-secondary)' }}>
-                      <li style={{ marginBottom: 4 }}><strong>Text / Markdown:</strong> % of characters covered (overlapping codings counted once).</li>
-                      <li style={{ marginBottom: 4 }}><strong>Audio / Video:</strong> % of duration covered by the union of time-range codings.</li>
-                      <li style={{ marginBottom: 4 }}><strong>PDF (text codings):</strong> % of extracted-text characters covered.</li>
-                      <li style={{ marginBottom: 4 }}><strong>PDF (region codings):</strong> % of region selections coded with this code.</li>
-                      <li style={{ marginBottom: 4 }}><strong>PDF (mixed):</strong> weighted average of the two above, by the count of each kind of selection in the source.</li>
-                      <li><strong>Image:</strong> % of region selections coded with this code.</li>
+                      <li style={{ marginBottom: 4 }}><Trans i18nKey="codeFreq.howText" components={{ b: <strong /> }} /></li>
+                      <li style={{ marginBottom: 4 }}><Trans i18nKey="codeFreq.howSurvey" components={{ b: <strong /> }} /></li>
+                      <li style={{ marginBottom: 4 }}><Trans i18nKey="codeFreq.howMedia" components={{ b: <strong /> }} /></li>
+                      <li style={{ marginBottom: 4 }}><Trans i18nKey="codeFreq.howPdfText" components={{ b: <strong /> }} /></li>
+                      <li style={{ marginBottom: 4 }}><Trans i18nKey="codeFreq.howPdfRegion" components={{ b: <strong /> }} /></li>
+                      <li style={{ marginBottom: 4 }}><Trans i18nKey="codeFreq.howPdfMixed" components={{ b: <strong /> }} /></li>
+                      <li><Trans i18nKey="codeFreq.howImage" components={{ b: <strong /> }} /></li>
                     </ul>
+                    <div style={{ color: 'var(--text-secondary)', marginBottom: 6 }}><Trans i18nKey="codeFreq.howGroups" components={{ b: <strong /> }} /></div>
+                    <div style={{ color: 'var(--text-secondary)' }}>{t('codeFreq.howEstimated')}</div>
                   </div>
                 </>
               )}
@@ -522,7 +567,7 @@ export function CodeFrequencies({ data: propData, savedConfig, inTab }: Props) {
 
           {codeGuids.length === 0 ? (
             <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 'var(--font-size-sm)', position: 'relative', zIndex: 1 }}>
-              Drag codes from the Code Browser to build the grid
+              {t('analysis.buildGridHint')}
             </div>
           ) : (
             <div style={{ overflowX: 'auto' }}>
@@ -553,7 +598,7 @@ export function CodeFrequencies({ data: propData, savedConfig, inTab }: Props) {
                     </tr>
                   )}
                   <tr>
-                    <th style={{ padding: 4, borderBottom: '1px solid var(--border-color)', textAlign: 'left', minWidth: 100, verticalAlign: 'bottom' }}>Code</th>
+                    <th style={{ padding: 4, borderBottom: '1px solid var(--border-color)', textAlign: 'start', minWidth: 100, verticalAlign: 'bottom' }}>{t('analysis.code')}</th>
                     {columns.map((col, j) => (
                       <th
                         key={col.id}
@@ -564,8 +609,11 @@ export function CodeFrequencies({ data: propData, savedConfig, inTab }: Props) {
                           verticalAlign: 'bottom', height: 80, padding: 0, position: 'relative'
                         }}
                       >
-                        <div style={{ position: 'absolute', bottom: 6, left: '50%', transformOrigin: 'bottom left', transform: 'rotate(-20deg)', whiteSpace: 'nowrap', fontSize: 10, overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 130 }}>
-                          {truncate(col.label, 24)}
+                        <div
+                          title={isAverageColumn(col) ? `${col.label}: ${t('codeFreq.averageTitle')}` : col.label}
+                          style={{ position: 'absolute', bottom: 6, left: '50%', transformOrigin: 'bottom left', transform: 'rotate(-20deg)', whiteSpace: 'nowrap', fontSize: 10, overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 170 }}
+                        >
+                          {columnLabel(col, 24)}
                         </div>
                       </th>
                     ))}
@@ -575,9 +623,9 @@ export function CodeFrequencies({ data: propData, savedConfig, inTab }: Props) {
                   {codeGuids.map((codeGuid, i) => (
                     <tr key={codeGuid}>
                       <td style={{ padding: '4px 6px', borderBottom: '1px solid var(--border-color)', fontWeight: 600, maxWidth: 120, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: codeMap.get(codeGuid)?.color || '#888', marginRight: 4, verticalAlign: 'middle' }} />
+                        <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: codeMap.get(codeGuid)?.color || '#888', marginInlineEnd: 4, verticalAlign: 'middle' }} />
                         {truncate(codeMap.get(codeGuid)?.name || '', 16)}
-                        <span onClick={() => setCodeGuids((p) => p.filter((g) => g !== codeGuid))} style={{ marginLeft: 4, fontSize: 9, color: 'var(--text-muted)', cursor: 'pointer' }}>x</span>
+                        <span onClick={() => setCodeGuids((p) => p.filter((g) => g !== codeGuid))} style={{ marginInlineStart: 4, fontSize: 9, color: 'var(--text-muted)', cursor: 'pointer' }}>x</span>
                       </td>
                       {columns.map((col, j) => {
                         const val = grid[i][j]
@@ -599,7 +647,7 @@ export function CodeFrequencies({ data: propData, savedConfig, inTab }: Props) {
                               }
                             }}
                           >
-                            {val.toFixed(1)}%
+                            {formatPercent(val)}
                           </td>
                         )
                       })}
@@ -607,6 +655,11 @@ export function CodeFrequencies({ data: propData, savedConfig, inTab }: Props) {
                   ))}
                 </tbody>
               </table>
+              {estimatedNames.length > 0 && (
+                <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-muted)' }}>
+                  {t('codeFreq.estimatedNote', { names: estimatedNames.join(', ') })}
+                </div>
+              )}
             </div>
           )}
           {dropOver && (
@@ -624,9 +677,9 @@ export function CodeFrequencies({ data: propData, savedConfig, inTab }: Props) {
         {codeGuids.length > 0 && columns.length > 0 && (
           <div className="analysis-section">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-              <span style={{ fontSize: 'var(--font-size-lg)', fontWeight: 600, color: 'var(--text-secondary)' }}>Chart</span>
+              <span style={{ fontSize: 'var(--font-size-lg)', fontWeight: 600, color: 'var(--text-secondary)' }}>{t('codeFreq.chart')}</span>
               <button className="secondary" style={{ fontSize: 10, padding: '3px 8px' }} onClick={handleExportChart}>
-                Export SVG
+                {t('analysis.exportSvg')}
               </button>
             </div>
 
@@ -635,7 +688,7 @@ export function CodeFrequencies({ data: propData, savedConfig, inTab }: Props) {
               {columns.map((col, ci) => (
                 <div key={col.id} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10 }}>
                   <div style={{ width: 10, height: 10, background: seriesColors[ci % seriesColors.length], borderRadius: 2 }} />
-                  {truncate(col.label, 20)}
+                  {columnLabel(col, 20)}
                 </div>
               ))}
             </div>
@@ -643,22 +696,22 @@ export function CodeFrequencies({ data: propData, savedConfig, inTab }: Props) {
             <div style={{ overflowX: 'auto' }}>
               <svg ref={chartRef} width={chartW} height={chartH} style={{ background: 'var(--bg-primary)', borderRadius: 'var(--radius-sm)' }}>
                 {/* Y axis */}
-                <line x1={marginLeft} y1={5} x2={marginLeft} y2={chartH - marginBottom} stroke={themeColors.borderColor} />
+                <line x1={marginInlineStart} y1={5} x2={marginInlineStart} y2={chartH - marginBottom} stroke={themeColors.borderColor} />
                 {[0, 25, 50, 75, 100].map((pct) => {
                   const y = chartH - marginBottom - (pct / Math.max(maxPct, 100)) * barMaxH
                   return (
                     <g key={pct}>
-                      <line x1={marginLeft - 4} y1={y} x2={marginLeft} y2={y} stroke={themeColors.textMuted} />
-                      <text x={marginLeft - 6} y={y + Math.round(axisFontSize * 0.35)} textAnchor="end" fontSize={axisFontSize} fontFamily={SVG_FONT_FAMILY} fill={themeColors.textMuted}>{pct}%</text>
+                      <line x1={marginInlineStart - 4} y1={y} x2={marginInlineStart} y2={y} stroke={themeColors.textMuted} />
+                      <text x={marginInlineStart - 6} y={y + Math.round(axisFontSize * 0.35)} textAnchor="end" fontSize={axisFontSize} fontFamily={SVG_FONT_FAMILY} fill={themeColors.textMuted}>{pct}%</text>
                     </g>
                   )
                 })}
                 {/* X axis */}
-                <line x1={marginLeft} y1={chartH - marginBottom} x2={chartW} y2={chartH - marginBottom} stroke={themeColors.borderColor} />
+                <line x1={marginInlineStart} y1={chartH - marginBottom} x2={chartW} y2={chartH - marginBottom} stroke={themeColors.borderColor} />
                 {/* Bars */}
                 {codeGuids.map((codeGuid, ci) => {
                   const groupW = columns.length * 14 + 10
-                  const groupX = marginLeft + 20 + ci * (groupW + 16)
+                  const groupX = marginInlineStart + 20 + ci * (groupW + 16)
                   return (
                     <g key={codeGuid}>
                       {columns.map((col, si) => {
@@ -692,7 +745,7 @@ export function CodeFrequencies({ data: propData, savedConfig, inTab }: Props) {
                               }
                             }}
                           >
-                            <title>{`${codeMap.get(codeGuid)?.name}: ${val.toFixed(1)}% in ${col.label}`}</title>
+                            <title>{t('codeFreq.barTitle', { code: codeMap.get(codeGuid)?.name, value: formatPercent(val), column: columnLabel(col) })}</title>
                           </rect>
                         )
                       })}

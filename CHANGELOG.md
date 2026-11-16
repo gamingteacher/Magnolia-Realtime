@@ -4,19 +4,81 @@ All notable changes to Magnolia are documented here. The format follows [Keep a 
 
 ## [Unreleased]
 
+## [2.1.0]
+
+### Changes to how results are calculated
+
+This version makes some important corrections to how results are calculated in several analysis tools. **If you have results from an earlier version of Magnolia, some of them may change when you open them in this version.** Saved analyses are recalculated when you open them, so they will show the new figures; results you exported or copied before won't change. We recommend opening your saved analyses again and checking any figures you have already reported, especially for audio, video, images, PDF boxes, grouped columns and tagged survey respondents.
+
+**Code Frequencies**
+- **Audio and video are measured by time.** Codings made on a transcript now count for the stretch of the recording they cover. Before, audio always showed 0%.
+- **Boxes on images and PDF pages are measured by area:** how much of the page or image they cover. For a PDF coded with both text and boxes, the text percentage and the box percentage are averaged.
+- **A coding can no longer count for more than the document holds.** A coding that ran past the end of a document could push a result over 100%.
+- **Columns that group several documents show an average** and are now labelled "(average)", so it's clear the figure is not a total. A note under the table says when the size of a page, image or recording had to be estimated.
+
+**Code Co-Occurrences and the Query tool's overlap**
+- **Boxes only co-occur when they overlap on the same page.** Before, two boxes could be counted together even when they were on different pages.
+- **Codings in audio and video co-occur when they overlap in time.** This includes a coding on the timeline and a coding on the transcript of the same moment. Before, two timeline codings could be counted together because they fell in the same line of a long transcript, even if they were minutes apart.
+- Code Co-Occurrences and the Query tool's overlap condition now always give the same answer.
+
+**Codes in Documents and Results in Documents**
+- **Totals count each document once.** When a document belonged to more than one of the grouped columns (for example, two tags), the Total counted it once for each column.
+- **A tag's column includes only the survey answers the tag covers.** If you tagged some respondents, the column used to include the whole survey.
+
+**Word Frequencies and the other word tools**
+- **A tag's column includes only the survey answers the tag covers** (as above).
+- **One-character words are counted in Chinese, Japanese and Thai,** where many words are a single character. Before, they were left out.
+
+**Codings kept safe**
+- **Codings on a video's timeline keep their exact times** when a project is saved and opened again.
+- **Codings on PDFs, images and recordings are kept when the file itself is missing** from the project, instead of being dropped.
+
+### Added
+- **Inter-coder Agreement.** A new analysis tool, in the **Team** group of the Analyse tab, compares how two or more people coded the same documents, each in their own copy of the project. Add each coder's project, drag in the documents and codes to compare, and choose how to compare them:
+  - **Characters** compares every character of text, moment of a recording and point of a page or image, and gives each pair of coders their % agreement and Cohen's kappa, with Krippendorff's alpha across three or more coders.
+  - **Segments** compares the coded passages as wholes, matching them at an **Overlap** you choose, and gives the share of passages matched and Brennan and Prediger's kappa.
+
+  With three or more coders, **By coder** shows how each coder agrees with the rest: their average kappa, and the alpha of everyone else without them, with the change marked in red or amber when a coder is out of step. Click any result to see the two coders' passages side by side, highlighted where they differ. Results are coloured by common guides, every column heading explains itself when you point at it, and the ⓘ button explains what each figure means and how it is calculated. Text, surveys, PDFs, images, audio and video can all be compared. Save the analysis to compare again later, export it as CSV, or add it to a report. If a coder's project has moved, Magnolia says so in Saved Analyses and in the tool, and **Locate…** finds it again.
+- **Import from Zotero.** **Import from Zotero** on the Home tab connects to the Zotero app on your computer (Zotero 7 or later), lists your library's collections and items, and imports the items' files into a **Zotero** folder, each named after its title. Every piece of an item's information (authors, year, publication, Zotero's own tags and collections, and so on) becomes a tag on the document, and its abstract and notes become memos. Items you've already imported are marked as such.
+- **Type a date range in the Document Selector.** **Between** and **Not Between** on a date category take typed dates, with boxes for the day, month and year (only the year is needed), or dates picked from those in use. Leave one end empty for an open range. Lists of dates are now newest first.
+- **Magnolia in 24 languages.** The menus, windows, analysis tools and exports are now available in English, Arabic, Catalan, Chinese (Simplified), Czech, Danish, Dutch, Finnish, French, German, Greek, Hebrew, Hindi, Italian, Japanese, Lithuanian, Norwegian, Portuguese (Brazil), Portuguese (Portugal), Russian, Spanish, Swedish, Turkish and Ukrainian. Magnolia starts in your computer's language, and **Language** in Preferences changes it. Your projects aren't changed: codes, documents and memos stay as you wrote them. In Arabic and Hebrew the interface is mirrored to read from right to left, and your own text reads in its own direction in any language. Numbers, percentages and sorted lists follow the language's conventions, and a **Digits** preference chooses between the sets of digits for languages that have more than one. Word Frequencies, Word Combinations and the other word tools find words in every script, including Chinese and Thai, and have stop words for each interface language.
+- **A button on every selection opens its menu.** When you finish selecting, a small round button with a chevron appears on the end of the selected text, or at the bottom-right corner of a box selection in a PDF or an image. Click it for the same menu as right-clicking the selection: New Code, Apply Code, Add as Quote and Add Selection Memo. It works in text documents, notes, transcripts, PDFs, images and survey answers.
+- **A notebook has an overview page.** Click a notebook in the Documents panel to open it, as a survey opens on its summary; its arrow still folds it. The page lists the notebook's notes, newest first, with the date of each, its title and the start of its text, how many words it has and how many coded segments. Click a note to open it, or **New note** to write one. **Export** saves the whole notebook as one PDF, every note with its title and date, with its codes marked or without them.
+- **Export a document as a PDF, with or without its codes.** Every document now has an **Export** menu in its toolbar with **Export as PDF with Codes** and **Export as PDF**. With codes, each coded segment is highlighted in its code's colour, with the code names in the margin beside it, after a list of the codes used and how often. Without codes, you get just the document. It works for text documents, notes and transcripts (with their timestamps), and for PDFs and images, whose pages are shown with the coded text and boxes marked on them. For a survey, the Export menu on the summary page exports each respondent's answers to the open questions with their codes, or the summary without them.
+- **See how an import is going.** While you import, a window lists every document with what's happening to it: waiting, reading, converting to PDF (for Word, RTF and OpenDocument files) and reading its text, then a tick when it's in. It closes by itself when everything has come in. If a document can't be imported, it stays open and says why in plain words, with what to try, for example that a Word file is damaged and could be opened in Word and saved again.
+- **Dragging files over Magnolia shows that dropping imports them.** A frame and a "Drop to import" card appear while you drag files over the window. Dropping them on a folder in the Documents panel still imports them into that folder.
+
+### Changed
+- **Apply Code lists every code.** The menu for a selection used to list only the codes with hotkeys; it now lists all of them, arranged as in the Code Browser with subcodes under their parents, and still shows each hotkey beside its code. A long codebook scrolls within the menu.
+- **One bar above each document.** The document's name and its controls now share a single bar, instead of a title bar with a toolbar under it. The name comes first, then the document's own controls (zoom and the selection tools for PDFs and images; Coding Mode, Import and Export for transcripts), then Export, Split and the memo button, in the same place for every document. In a split PDF, the bar shows the zoom of the half you're working in. When the viewer is narrow, the name is shortened, and the controls move together onto a second line if they still don't fit. The transcript's Coding Mode hint is now the switch's tooltip, and the document type and word count are no longer shown.
+- **Survey charts respond to the pointer.** Point at an option in a donut chart's key, or at the chart itself, and its slice pops out of the ring with a soft glow in its colour.
+- **Survey charts use the interface's colours,** the same blue, coral, teal, violet and gold as the code colours, in place of the older bright set. Exported survey summaries match.
+- **The survey summary's export is in an Export menu,** with the same two choices as every other document: Export as PDF with Codes and Export as PDF.
+- **Merge compares where documents are filed.** A document moved to another folder or notebook can be taken like a rename, and a document or note brought in from the other project goes where it was filed there. Notebooks, notes and their codings have a section of their own in the merge review, and **Select All** only touches the section you're looking at.
+- **Query is the first button on the Analyse tab.**
+- **Word, RTF and OpenDocument files are laid out by Magnolia itself** when you import them, instead of by your system's web view, so they come out the same on Mac, Windows and Linux. They're still imported as PDFs, with their headings, lists, tables, links and pictures, though their spacing and fonts may differ a little from before.
+
+### Fixed
+- **Space between the warning icon and "Locked"** on the toolbar button that shows when someone else is working on the project.
+- **Arabic, Hebrew and other scripts in imported Word, RTF and OpenDocument files read correctly.** Their words came out reversed, or in broken letter shapes, in Word Frequencies, Word Combinations, search and coded passages. Documents imported before this version keep their old text: import them again to fix it.
+- **Right-to-left text reads in its own direction in more places:** passages in Query Results, saved quotes, memo titles and text in the Memos panel and window, and, in exported PDFs, coded documents and notebooks, headings, titles and names. Before, they were laid out left to right, with punctuation and the ends of passages on the wrong side.
+- **Highlights on part of a right-to-left line in a PDF** are drawn over the right words, in the viewer and in exported PDFs with codes.
+- **In full screen on a Mac,** the toolbar no longer leaves a gap for the window buttons, and the window's corners are square.
+
 ## [2.0.2]
 
 ### Fixed
-- Windows release builds failed because Rollup's native Windows package was missing from the lockfile.
-- The release workflow now checks the updater signing key before building, so a wrong key or password fails early.
-- The Build workflow no longer runs on macOS; macOS builds aren't supported in this fork.
+- Windows release builds now include Rollup's native Windows package, and the release workflow validates the updater signing key before building.
+- macOS was removed from the Build workflow because this fork does not publish macOS builds.
 
 ## [2.0.1]
 
-### Changed
-- **Based on Magnolia 2.0.0 (Tauri 2 + Rust).** Brings upstream's split view, Memos window, ribbon, Word Combinations and Software Update window.
-- **Cloud Sync now runs on the Rust backend.** Credentials are encrypted with a key in the OS keychain. Re-enter your Supabase URL and key and sign in once after updating from 1.x.
-- Updates come from this fork's releases, signed with its own key. Forest Light and Forest Dark are kept.
+### Fixed
+- **Linux .deb and .rpm installs can update themselves.** Install Update downloaded the AppImage, which these installs can't use, then reopened on the old version without saying anything. It now downloads the right package and asks for your password to install it.
+- **A failed update install now says so.** If an update can't be installed, for example because the password prompt was cancelled, the update window shows the error before Magnolia reopens on the current version.
+- **Going to a passage in a text document scrolls to it again.** Double-clicking a query result, or clicking a saved quote or memo, opened the text document but stayed at the place you last read, and the passage stayed highlighted afterwards. It now scrolls to the passage and the highlight fades after a moment.
+- **The Linux AppImage starts on older distributions again** ([#31](https://github.com/caledavis/Magnolia/issues/31)). The 2.0.0 AppImage wouldn't start on Ubuntu 22.04 or Debian 12, and could stop with `undefined symbol: gpgrt_add_post_log_func`. It's now built on Ubuntu 22.04 and checked on Ubuntu 22.04, Ubuntu 24.04 and Debian 12 before release.
+- **Magnolia Sync was added and moved to the Rust backend.** Credentials are encrypted with a key in the OS keychain. Updates come from this fork's releases, signed with its own key; Forest Light and Forest Dark remain available.
 
 ## [2.0.0]
 
@@ -47,7 +109,7 @@ All notable changes to Magnolia are documented here. The format follows [Keep a 
 - **Survey questions and respondents are chosen in the Document Selector.** Each survey in the Selected Documents list now has **All questions** and **All respondents**: click either to tick the ones you want, or drag questions and respondents from the Documents panel onto the selector. This replaces the separate Questions box in the analysis tools and the Questions and Respondents boxes in the Query Builder, so a survey's scope is set in one place, next to the survey. Analyses and queries saved with chosen questions keep them. In Results in Documents, whose documents come from its queries, questions chosen in an older version still apply and can be cleared; choose questions in each query instead.
 
 ### Removed
-- **The Clean, Clean Dark, Granola and Granola Dark themes.** Magnolia now has three themes: Magnolia, Magnolia Dark and High Contrast. If you used a light theme that has gone, Magnolia opens in Magnolia; if you used a dark one, in Magnolia Dark.
+- **The Clean, Clean Dark, Granola and Granola Dark themes.** Upstream Magnolia now has three themes: Magnolia, Magnolia Dark and High Contrast. This fork also keeps Forest Light and Forest Dark available.
 - **The Icons and Text toolbar style,** which the ribbon replaces. If you used it, Magnolia opens with the ribbon.
 
 ### Fixed
@@ -63,12 +125,6 @@ All notable changes to Magnolia are documented here. The format follows [Keep a 
 - **Whole-word text search finds text that starts or ends with punctuation.** Searching for `, but` with `Whole word` ticked found nothing, because the comma's neighbour had to be a word boundary too. Now only an end of the search text that's part of a word needs one.
 - **Whole-word text search inside codes matches the same text as a search of the whole document.** Combined with a code (for example, text inside a code), a whole-word search couldn't find text ending in punctuation, such as `pressure.`, or words with accented letters at an edge, such as `café`.
 - **Word Frequencies in Reports counts each word once.** A grouped analysis in a report could count words more than once in its Total column (the fix made on screen in 1.9.0 hadn't reached reports).
-
-## [1.9.15]
-
-### Added
-- **Cloud Sync (experimental, opt-in).** Collaborate through your own Supabase project with username/password accounts, encrypted local sessions, multi-use expiring/revocable invites, editor/viewer roles, member management and author attribution (members, invites, invite uses, entity and op authors are all foreign-keyed to `profiles`). Connect from the welcome screen without first opening a local project, or from Preferences. Cloud data stays in your Supabase project; service-role and secret keys are rejected. Offline-first with retry, conflict handling and text-edit merging. Follow the new step-by-step Supabase setup guide and run the idempotent setup SQL.
-- **Live awareness in Cloud Sync.** See where other members are working: a coloured caret and selection in coded text, a named outline on items that opt in with a `data-sync-entity="kind:guid"` attribute, and a list of who is in which document or tool. Each member keeps a stable colour. Indicators clear when someone goes idle (60 s), hides the window or disconnects. Open views update automatically when someone else changes them, with a short "Updated by Ana" notice; edits you are in the middle of are merged with the existing 3-way text merge (your caret stays put), and a notice appears if they truly conflict. Viewers see everything but still never push edits. Uses Realtime Presence, so no SQL changes are needed.
 
 ## [1.9.0]
 

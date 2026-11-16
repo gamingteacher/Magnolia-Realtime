@@ -14,8 +14,11 @@ import { invoke } from '@tauri-apps/api/core'
 import { emit, emitTo } from '@tauri-apps/api/event'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
-import type { MagnoliaAPI } from '../models/types'
+import type { ImportItem, ImportState, MagnoliaAPI } from '../models/types'
 import { base64ToBytes, extractPdfText } from './pdf-text'
+import { t } from '../i18n'
+import { withDocumentLanguage } from '../utils/document-language'
+import { guardComposition } from '../utils/keys'
 
 const current = getCurrentWebviewWindow()
 const MAIN = 'main'
@@ -70,7 +73,11 @@ const localProgress = new Set<ProgressCallback>()
  *  PDF by its handle. */
 async function completeProjectPdfText(
   data: any,
-  readBytes: (handle: string) => Promise<Uint8Array | null>
+  readBytes: (handle: string) => Promise<Uint8Array | null>,
+  /** Report progress to the project-loading overlay. Off for a file read
+   *  alongside the open project (merge, inter-coder agreement): nothing
+   *  would close the overlay afterwards. */
+  reportProgress = true
 ): Promise<any> {
   if (!data?.sources) return data
   const pending = data.sources.filter((s: any) => s._pendingPdfText)
@@ -91,7 +98,7 @@ async function completeProjectPdfText(
       console.error(`Failed to extract text from PDF ${source.guid}:`, err)
     }
     done++
-    for (const cb of localProgress) cb({ stage: 'Reading PDF text', current: done, total: pending.length })
+    if (reportProgress) for (const cb of localProgress) cb({ stage: t('pdfText.reading'), current: done, total: pending.length })
   }
   return data
 }
@@ -106,7 +113,9 @@ async function completeImportedPdf(doc: any): Promise<any> {
     doc.formatting.pdfPageOffsets = pageOffsets
     return doc
   } catch (err: any) {
-    return { name: doc.name, error: err?.message || String(err) }
+    // pdf.js's messages are technical; say what's wrong in plain words.
+    console.error(`Could not read the PDF ${doc.name}:`, err)
+    return { name: doc.name, error: t(err?.name === 'PasswordException' ? 'importProgress.pdfPassword' : 'importProgress.pdfDamaged') }
   }
 }
 
@@ -124,6 +133,57 @@ async function openedProject(data: any): Promise<any> {
   return completeProjectPdfText(data, async (h) => new Uint8Array(await readMedia(h)))
 }
 
+// ── Importing documents ───────────────────────────────────────────────
+// Files are read one at a time, reporting each one's stage: the backend
+// reads it (and typesets Word, RTF and ODT files as PDFs), then a PDF's
+// text is read here.
+
+const importProgress = new Set<(s: ImportState) => void>()
+const OFFICE = /\.(docx|rtf|odt)$/i
+
+async function readImports(filePaths: string[]): Promise<any[]> {
+  const items: ImportItem[] = filePaths.map((p) => ({
+    name: droppedFiles.get(p)?.name ?? p.split(/[\\/]/).pop() ?? p,
+    stage: 'waiting'
+  }))
+  const report = (finished = false) => {
+    const state = { items: items.map((it) => ({ ...it })), finished }
+    for (const cb of importProgress) cb(state)
+  }
+  const out: any[] = []
+  for (const [i, p] of filePaths.entries()) {
+    const item = items[i]
+    item.stage = OFFICE.test(item.name) ? 'converting' : 'reading'
+    report()
+    let doc: any
+    try {
+      const file = droppedFiles.get(p)
+      if (file) {
+        droppedFiles.delete(p)
+        doc = await readDroppedFile(file)
+      } else {
+        doc = (await invoke<any[]>('read_text_files', { filePaths: [p] }))[0]
+      }
+      if (doc?._pendingPdfText) {
+        item.stage = 'readingText'
+        report()
+      }
+      doc = await completeImportedPdf(doc)
+    } catch (err: any) {
+      doc = { name: item.name, error: err?.message || String(err) }
+    }
+    if (doc?.error) {
+      item.stage = 'failed'
+      item.error = doc.error
+    } else {
+      item.stage = 'done'
+    }
+    out.push(doc)
+  }
+  report(true)
+  return out
+}
+
 // ── OS file drops ─────────────────────────────────────────────────────
 // The webview gives dropped files' bytes but not their paths, so
 // getPathForFile returns a token and readTextFiles uploads the bytes.
@@ -138,12 +198,11 @@ async function readDroppedFile(file: File): Promise<any> {
     bytes = await file.arrayBuffer()
   } catch {
     // WebKit can't read a dropped folder as bytes.
-    return { name: file.name, error: "Folders can't be imported. Drop the files inside it instead." }
+    return { name: file.name, error: t('native.import.folder') }
   }
-  const doc = await invoke('read_dropped_file', new Uint8Array(bytes), {
+  return invoke('read_dropped_file', new Uint8Array(bytes), {
     headers: { 'x-file-name': encodeURIComponent(file.name) }
   })
-  return completeImportedPdf(doc)
 }
 
 // ── Window chrome ─────────────────────────────────────────────────────
@@ -254,6 +313,8 @@ const api: MagnoliaAPI = {
   },
   openProject: async () => openedProject(await invoke('open_project')),
   pickProjectFile: () => invoke('pick_project_file'),
+  missingFiles: (paths) => invoke('missing_files', { paths }),
+  pickProjectFiles: () => invoke('pick_project_files'),
   openProjectPath: async (filePath) => openedProject(await invoke('open_project_path', { filePath })),
   readCheckoutMarker: (filePath) => invoke('read_checkout_marker', { filePath }),
   checkOutProject: (filePath, userName, steal) => invoke('check_out_project', { filePath, userName, steal }),
@@ -264,7 +325,7 @@ const api: MagnoliaAPI = {
     return completeProjectPdfText(data, async (handle) => {
       const buf = await invoke<ArrayBuffer>('read_compare_binary', { comparisonFilePath: filePath, handle })
       return buf.byteLength ? new Uint8Array(buf) : null
-    })
+    }, false)
   },
   importMergeBinary: (comparisonFilePath, handle) => invoke('import_merge_binary', { comparisonFilePath, handle }),
   readCompareBinary: async (comparisonFilePath, handle) => {
@@ -275,19 +336,16 @@ const api: MagnoliaAPI = {
   saveProjectAs: (data) => invoke('save_project_as', { data }),
   createProjectCopy: (data) => invoke('create_project_copy', { data }),
   createNewProjectFile: () => invoke('create_new_project_file'),
-  importTextFile: async () => completeImports(await invoke('import_text_file')),
-  readTextFiles: async (filePaths) => {
-    const out: any[] = []
-    for (const p of filePaths) {
-      const file = droppedFiles.get(p)
-      if (file) {
-        droppedFiles.delete(p)
-        out.push(await readDroppedFile(file))
-      } else {
-        out.push(...(await completeImports(await invoke<any[]>('read_text_files', { filePaths: [p] }))))
-      }
-    }
-    return out
+  importTextFile: async () => {
+    const paths = await invoke<string[] | null>('pick_import_files')
+    return paths?.length ? readImports(paths) : null
+  },
+  readTextFiles: readImports,
+  zoteroGet: (path) => invoke('zotero_get', { path }),
+  zoteroFilePath: (library, key) => invoke('zotero_file_path', { library, key }),
+  onImportProgress: (callback) => {
+    importProgress.add(callback)
+    return () => { importProgress.delete(callback) }
   },
   getPathForFile: (file) => {
     const token = `${DROP_PREFIX}${nextDropId++}/${file.name}`
@@ -301,8 +359,9 @@ const api: MagnoliaAPI = {
   readImageFile: readMedia,
   readVideoFile: readMedia,
   importTranscript: () => invoke('import_transcript'),
+  // Every PDF export: in the interface's language and direction.
   exportPdf: (html, defaultName, dialogTitle, headerTemplate, footerTemplate) =>
-    invoke('export_pdf', { html, defaultName, dialogTitle, headerTemplate, footerTemplate }),
+    invoke('export_pdf', { html: withDocumentLanguage(html), defaultName, dialogTitle, headerTemplate, footerTemplate }),
   exportCodebook: (codes) => invoke('export_codebook', { codes }),
   importCodebook: () => invoke('import_codebook'),
   showNewQueryDialog: () => {},
@@ -339,6 +398,13 @@ const api: MagnoliaAPI = {
     on<{ factor: number; from: string }>('zoom-factor-changed', (p) => {
       if (p.from !== current.label) callback(p.factor)
     }),
+  broadcastLanguage: (language) => void emit('language-changed', { language, from: current.label }),
+  onLanguageChanged: (callback) =>
+    on<{ language: string; from: string }>('language-changed', (p) => {
+      if (p.from !== current.label) callback(p.language)
+    }),
+  setNativeLanguage: (language, preference, numberLocale) => void invoke('set_native_language', { language, preference, numberLocale }),
+  systemLocale: () => invoke('system_locale'),
 
   // Codebook window
   openCodebookWindow: (data) => void invoke('open_child_window', { kind: 'codebook', data }),
@@ -421,6 +487,16 @@ const api: MagnoliaAPI = {
   getUpdateBadge: () => invoke('get_update_badge'),
   onUpdateBadge: (callback) => on('update:badge', callback as any),
 
+  // Inter-coder Agreement results window (pop-out)
+  openIntercoderResultsWindow: (data) => void invoke('open_child_window', { kind: 'intercoder-results', data }),
+  updateIntercoderResultsWindow: (data) => void invoke('update_intercoder_results_window', { data }),
+  closeIntercoderResultsWindow: () => void invoke('close_child_window', { kind: 'intercoder-results' }),
+  getIntercoderResultsData: () => invoke('get_window_data'),
+  onIntercoderResultsData: (callback) => on('intercoder-results-init-data', callback),
+  sendIntercoderResultsAction: (action, payload) => toMain('intercoder-results-action', { action, payload }),
+  onIntercoderResultsAction: (callback) => on<any>('intercoder-results-action', (p) => callback(p.action, p.payload)),
+  onIntercoderResultsClosed: (callback) => on('intercoder-results-window-closed', () => callback()),
+
   // Query results window (pop-out)
   openQueryResultsWindow: (data) => void invoke('open_child_window', { kind: 'query-results', data }),
   updateQueryResultsWindow: (data) => void invoke('update_query_results_window', { data }),
@@ -461,3 +537,18 @@ if (current.label !== MAIN) {
 // clears the macOS traffic lights, and on macOS the panes in a window's
 // bottom corners, pop-outs included, follow its rounded corners.
 document.documentElement.setAttribute('data-platform', platform)
+// …and whether the window is full screen, where macOS hides the traffic
+// lights and squares the window's corners, so neither needs room. Entering
+// or leaving full screen resizes the window.
+if (platform === 'darwin') {
+  const markFullscreen = () => {
+    void current.isFullscreen().then((full) => {
+      document.documentElement.toggleAttribute('data-fullscreen', full)
+    }).catch(() => { /* window gone */ })
+  }
+  markFullscreen()
+  void current.onResized(markFullscreen)
+}
+// Enter and Escape belong to an input method while it's composing (see
+// utils/keys), in every window.
+guardComposition()

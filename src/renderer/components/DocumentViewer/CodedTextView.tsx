@@ -14,6 +14,7 @@ import { useMemoStore } from '../../stores/memo-store'
 import { blendColors, multiColorUnderline } from '../../utils/code-highlight'
 import { computeTextEdit } from '../../utils/text-edit-offsets'
 import { continueListEdit, toggleMarkEdit } from '../../utils/notes'
+import { useTranslation } from 'react-i18next'
 
 interface Props {
   text: string
@@ -203,6 +204,7 @@ function CodedTextViewImpl({
   placeholder,
   autoFocus
 }: Props) {
+  const { t } = useTranslation()
   const containerRef = useRef<HTMLDivElement>(null)
   const editorRef = useRef<HTMLDivElement>(null)
 
@@ -466,7 +468,7 @@ function CodedTextViewImpl({
           const memo = contentMemos?.find(
             (m) => m.startPosition === mr.startCp && m.endPosition === mr.endCp
           )
-          return memo ? { guid: memo.guid, title: memo.title || 'Untitled Memo', startCp: mr.startCp, endCp: mr.endCp } : null
+          return memo ? { guid: memo.guid, title: memo.title || t('memos.untitled'), startCp: mr.startCp, endCp: mr.endCp } : null
         })
         .filter((x): x is { guid: string; title: string; startCp: number; endCp: number } => x !== null)
 
@@ -906,11 +908,11 @@ function CodedTextViewImpl({
       )
       const hasMemo = segMemos.length > 0
 
-      const memoTitles = segMemos.map((m) => m.title || 'Selection Memo').join(', ')
+      const memoTitles = segMemos.map((m) => m.title || t('viewer.selectionMemo')).join(', ')
       const codeTitles = hasHighlight
         ? span.activeCodes.map((ac) => codeMap.get(ac.codeGuid)?.name).filter(Boolean).join(', ')
         : ''
-      const titleParts = [codeTitles, hasMemo ? `Memo: ${memoTitles}` : ''].filter(Boolean)
+      const titleParts = [codeTitles, hasMemo ? t('viewer.memoTitles', { titles: memoTitles }) : ''].filter(Boolean)
 
       atoms.push({
         cpStart: segStart,
@@ -1017,10 +1019,18 @@ function CodedTextViewImpl({
       // mounted). Text can never render past this, since it's bounded by
       // the same flex box.
       const firstMarginDiv = container.querySelector<HTMLDivElement>('[data-margin-col]')
+      // Horizontal positions in the margin are distances from the
+      // container's start edge: its left, or its right in a right-to-left
+      // interface, where the margin's layers are mirrored to match (the
+      // bracket layer flipped by CSS, the labels and icons placed from the
+      // start edge).
+      const rtl = getComputedStyle(container).direction === 'rtl'
       let marginCeilingPx = containerRect.width - (MARGIN_LABEL_W + bracketZoneW + 14)
       if (firstMarginDiv) {
         const rect = firstMarginDiv.getBoundingClientRect()
-        marginCeilingPx = rect.left - containerRect.left + container.scrollLeft
+        marginCeilingPx = rtl
+          ? containerRect.right - rect.right + Math.abs(container.scrollLeft)
+          : rect.left - containerRect.left + container.scrollLeft
       }
 
       // Build span data once, tracking the furthest-right extent of any
@@ -1038,7 +1048,7 @@ function CodedTextViewImpl({
           const r = clientRects[i]
           if (r.height > 0 && r.width > 0) {
             rects.push(r)
-            maxContentRight = Math.max(maxContentRight, r.right - containerRect.left)
+            maxContentRight = Math.max(maxContentRight, rtl ? containerRect.right - r.left : r.right - containerRect.left)
           }
         }
         if (rects.length > 0) spanPositions.push({ cpStart, cpEnd, rects })
@@ -1595,18 +1605,18 @@ function CodedTextViewImpl({
           if (range.start === range.end) onSelectionCleared?.()
           else onTextSelected(range.start, range.end, [...text].slice(range.start, range.end).join(''))
         }}
-        style={{ outline: 'none', position: 'relative', minHeight: 22 * 4, paddingLeft: 20 }}
+        style={{ outline: 'none', position: 'relative', minHeight: 22 * 4, paddingInlineStart: 20 }}
       >
         {body}
         {needsTrailingLine && (
           <div key={`${editEpoch}-end`} style={{ ...TRANSCRIPT_ROW_STYLE, minHeight: 22, lineHeight: '22px' }}>
-            <span data-cpoffset={len} style={{ flex: 1, whiteSpace: 'pre-wrap' }}><br /></span>
+            <span data-cpoffset={len} className="user-text" style={{ flex: 1, whiteSpace: 'pre-wrap' }}><br /></span>
           </div>
         )}
         {text === '' && placeholder && (
           <div
             contentEditable={false}
-            style={{ position: 'absolute', top: 0, left: 20, lineHeight: '22px', color: 'var(--text-muted)', pointerEvents: 'none', userSelect: 'none' }}
+            style={{ position: 'absolute', top: 0, insetInlineStart: 20, lineHeight: '22px', color: 'var(--text-muted)', pointerEvents: 'none', userSelect: 'none' }}
           >
             {placeholder}
           </div>
@@ -1631,7 +1641,7 @@ function CodedTextViewImpl({
       }}
     >
       {/* Bracket overlay — positioned by DOM measurement, independent of line wrapping */}
-      <div ref={bracketOverlayRef} data-coding-overlay="1" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none', userSelect: 'none', WebkitUserSelect: 'none', zIndex: 1 }} />
+      <div ref={bracketOverlayRef} data-coding-overlay="1" data-bracket-overlay="1" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none', userSelect: 'none', WebkitUserSelect: 'none', zIndex: 1 }} />
       {/* Label overlay — React-rendered so mouseenter/click handlers
           persist across overlay rebuilds. Labels live in their own layer
           so the imperative bracket-shapes layer can be freely cleared.
@@ -1697,7 +1707,7 @@ function CodedTextViewImpl({
               existingCodings: [],
               overlappingMemos: memos.map((m) => ({
                 guid: m.guid,
-                title: m.title || 'Untitled Memo',
+                title: m.title || t('memos.untitled'),
                 startCp: m.startPosition ?? 0,
                 endCp: m.endPosition ?? m.startPosition ?? 0
               }))
@@ -1710,7 +1720,7 @@ function CodedTextViewImpl({
             const items = qs.map((q) => ({
               guid: q.guid,
               type: 'content' as const,
-              title: 'Quote',
+              title: t('viewer.quote'),
               content: '',
               createdDateTime: '',
               startPosition: q.startCp,
@@ -1769,7 +1779,7 @@ function CodedTextViewImpl({
                   active={isActive}
                   invisible={!ts}
                   onClick={ts && onTimestampClick ? () => onTimestampClick(ts.seconds) : undefined}
-                  title={ts ? `Jump to ${ts.text}` : undefined}
+                  title={ts ? t('viewer.jumpTo', { time: ts.text }) : undefined}
                 />
               )
             })() : (
@@ -1777,7 +1787,7 @@ function CodedTextViewImpl({
             )}
             {/* Line content */}
             <span
-              className={fmtBlockClass || undefined}
+              className={fmtBlockClass ? `user-text ${fmtBlockClass}` : 'user-text'}
               style={{
                 flex: 1,
                 whiteSpace: 'pre-wrap',
@@ -1985,7 +1995,7 @@ function CodedTextViewImpl({
                   alignSelf: 'stretch',
                   position: 'relative',
                   userSelect: 'none',
-                  marginLeft: 8
+                  marginInlineStart: 8
                 }}
               >
                 {/* Per-line bracket/label rendering removed — overlay handles this */}
@@ -2000,8 +2010,8 @@ function CodedTextViewImpl({
               style={{
                 display: 'flex',
                 flexShrink: 0,
-                paddingLeft: 2,
-                paddingRight: 4,
+                paddingInlineStart: 2,
+                paddingInlineEnd: 4,
                 width: 18 * 2 + 2 + 4,
                 minWidth: 18 * 2 + 2 + 4
               }}
@@ -2048,9 +2058,9 @@ function CodedTextViewImpl({
               >
                 <Icon
                   icon={memoPopup.isQuote ? QUOTE_ICON : (m.startPosition === m.endPosition ? MEMO_POINT_ICON : MEMO_RANGED_ICON)}
-                  style={{ marginRight: 6, fontSize: 10, color: memoPopup.isQuote ? '#d94a4a' : undefined }}
+                  style={{ marginInlineEnd: 6, fontSize: 10, color: memoPopup.isQuote ? '#d94a4a' : undefined }}
                 />
-                <span style={{ flex: 1 }}>{m.title || (memoPopup.isQuote ? 'Quote' : 'Untitled Memo')}</span>
+                <span style={{ flex: 1 }}>{m.title || (memoPopup.isQuote ? t('viewer.quote') : t('memos.untitled'))}</span>
               </div>
             ))}
             {/* Delete options for quotes (right-click only) */}
@@ -2074,7 +2084,7 @@ function CodedTextViewImpl({
                       setHoveredRange(null)
                     }}
                   >
-                    Delete "{(m.title || 'Quote').slice(0, 20)}"
+                    {t('viewer.deleteNamed', { name: (m.title || t('viewer.quote')).slice(0, 20) })}
                   </div>
                 ))}
               </>

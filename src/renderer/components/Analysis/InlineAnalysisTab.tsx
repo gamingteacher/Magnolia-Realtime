@@ -28,6 +28,7 @@ import { buildQueryBuilderInitData } from '../../utils/build-query-builder-init-
 import { CodeCoOccurrences } from './CodeCoOccurrences'
 import { CodesInDocuments } from './CodesInDocuments'
 import { FrameworkMatrix } from './FrameworkMatrix'
+import { IntercoderAgreement } from './intercoder/IntercoderAgreement'
 import { CodeFrequencies } from './CodeFrequencies'
 import { CodeOrders } from './CodeOrders'
 import { WordFrequencies } from './WordFrequencies'
@@ -37,6 +38,7 @@ import { Reports } from './Reports'
 import { QueryBuilderWindow } from '../QueryBuilder/QueryBuilderWindow'
 import { MemoFab } from '../Memos/MemoFab'
 import type { AnalysisToolType } from '../../models/types'
+import { i18n } from '../../i18n'
 
 interface Props {
   tabId: string
@@ -191,6 +193,8 @@ function dispatch(
       return <CodesInDocuments data={data} savedConfig={savedConfig} inTab={inTab} />
     case 'framework-matrix':
       return <FrameworkMatrix data={data} savedConfig={savedConfig} inTab={inTab} />
+    case 'intercoder-agreement':
+      return <IntercoderAgreement data={data} savedConfig={savedConfig} inTab={inTab} />
     case 'results-in-documents':
       return <ResultsInDocuments data={data} savedConfig={savedConfig} inTab={inTab} />
     case 'code-frequencies':
@@ -204,6 +208,6 @@ function dispatch(
     case 'reports':
       return <Reports data={data} savedConfig={savedConfig} inTab={inTab} />
     default:
-      return <div style={{ padding: 20, color: 'var(--text-muted)' }}>Unknown tool: {toolType}</div>
+      return <div style={{ padding: 20, color: 'var(--text-muted)' }}>{i18n.t('analysis.unknownTool', { tool: toolType })}</div>
   }
 }

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { listMembers, removeMember, setMemberRole, type MemberEntry } from '../../sync/session'
+import { useTranslation } from 'react-i18next'
 
 const row = { display: 'flex', gap: 8, marginBottom: 6, alignItems: 'center' } as const
 const note = { fontSize: 11.5, color: 'var(--text-secondary)' } as const
@@ -7,6 +8,7 @@ const note = { fontSize: 11.5, color: 'var(--text-secondary)' } as const
 interface Props { projectId: string }
 
 export function MembersPanel({ projectId }: Props): JSX.Element {
+  const { t } = useTranslation()
   const [members, setMembers] = useState<MemberEntry[]>([])
   const [message, setMessage] = useState('')
   const refresh = (): void => {
@@ -28,16 +30,16 @@ export function MembersPanel({ projectId }: Props): JSX.Element {
 
   return (
     <section>
-      <h4 style={{ fontSize: 12, margin: '14px 0 8px' }}>Members</h4>
+      <h4 style={{ fontSize: 12, margin: '14px 0 8px' }}>{t('sync.members')}</h4>
       {members.map((m) => (
         <div key={m.user_id} style={row}>
           <span style={{ flex: 1, fontSize: 12 }}>{m.display_name} <small>@{m.username}</small></span>
-          {m.role === 'owner' ? <span style={note}>Owner</span> : <>
-            <select aria-label={`Role for ${m.username}`} value={m.role}
+          {m.role === 'owner' ? <span style={note}>{t('sync.role.owner')}</span> : <>
+            <select aria-label={t('sync.roleFor', { username: m.username })} value={m.role}
               onChange={(e) => void updateRole(m, e.target.value as 'editor' | 'viewer')}>
-              <option value="editor">Editor</option><option value="viewer">Viewer</option>
+              <option value="editor">{t('sync.role.editor')}</option><option value="viewer">{t('sync.role.viewer')}</option>
             </select>
-            <button onClick={() => void remove(m)}>Remove</button>
+            <button onClick={() => void remove(m)}>{t('sync.remove')}</button>
           </>}
         </div>
       ))}

@@ -13,6 +13,8 @@ import type { AnalysisInitData, CodeCondition, PlainTextSelection, QueryResult }
 import { stripFormatting } from '../../utils/strip-formatting'
 import { sourceTypeFromFilename } from '../../utils/format-registry'
 import { sentenceRanges } from '../../utils/sentences'
+import { compareText } from '../../i18n'
+import { wordTokens, isCountedWord, type WordToken } from '../../utils/words'
 
 export interface WordFilter {
   exclude: Set<string>
@@ -34,9 +36,9 @@ export function wordFilter(includeWords: string, excludeWords: string): WordFilt
 /** Add the words of `texts` to `freq` (a new map when omitted). */
 export function countWords(texts: Iterable<string>, filter: WordFilter, freq = new Map<string, number>()): Map<string, number> {
   for (const text of texts) {
-    const words = text.toLowerCase().match(/\b[a-zA-ZÀ-ɏ']+\b/g) || []
-    for (const w of words) {
-      if (w.length < 2) continue
+    // Words as text search finds them (utils/words), in any script.
+    for (const { word: w } of wordTokens(text.toLowerCase())) {
+      if (!isCountedWord(w)) continue
       if (filter.exclude.has(w)) continue
       if (filter.include && !filter.include.has(w)) continue
       freq.set(w, (freq.get(w) || 0) + 1)
@@ -126,9 +128,10 @@ export function queryPassageTexts(d: AnalysisInitData, results: QueryResult[]): 
     const byText: RangesByText = new Map()
     for (const r of rs) {
       if (boxes.has(r.selectionGuid)) { boxCount++; continue }
-      // Video results hold transcript line indexes, not text offsets;
-      // their matched text is already the lines they cover.
-      if (r.timeRange) { if (r.matchedText) passages.push({ sourceGuid: sg, text: r.matchedText }); continue }
+      // A video result with no transcript span: its matched text is the
+      // lines its time covers. Otherwise its span is text offsets, merged
+      // with the rest so overlapping codings aren't counted twice.
+      if (r.timeRange && r.endPosition <= r.startPosition) { if (r.matchedText) passages.push({ sourceGuid: sg, text: r.matchedText }); continue }
       const key = r.surveyCell ? `${r.surveyCell.respondentId}\n${r.surveyCell.questionId}` : ''
       addRange(byText, key, r.startPosition, r.endPosition)
     }
@@ -213,18 +216,28 @@ export function codeSet(codes: AnalysisInitData['codes'], codeGuid: string, with
 }
 
 // ── Word combinations ──────────────────────────────────────────────
-// Phrases and associations read words the way text search does, so a
-// phrase found here is found again when the user clicks it: letters
-// (with accents) and inner apostrophes, bounded by anything that isn't
-// a letter, digit or straight apostrophe (query-engine isWordBoundary).
+// Phrases and associations read words the way text search does (see
+// utils/words), so a phrase found here is found again when the user
+// clicks it.
 
-const LETTER = 'a-z\\u00C0-\\u024F'
-const TOKEN = `(?<![${LETTER}'\\d])[${LETTER}]+(?:['\u2019][${LETTER}]+)*(?![${LETTER}'\\d])`
-const TOKEN_RE = new RegExp(TOKEN, 'g')
-/** Runs of words joined by single spaces. A phrase never spans
- *  punctuation, a line break or a double space, so its text appears
- *  verbatim in the document. */
-const RUN_RE = new RegExp(`${TOKEN}(?: ${TOKEN})*`, 'g')
+/** Runs of words joined by a single space, or by nothing in a script
+ *  written without spaces. A phrase never spans punctuation, a line break
+ *  or a double space, so its text appears verbatim in the document. */
+function wordRuns(text: string): WordToken[][] {
+  const runs: WordToken[][] = []
+  let run: WordToken[] = []
+  for (const tok of wordTokens(text)) {
+    const prev = run[run.length - 1]
+    const gap = prev ? text.slice(prev.end, tok.start) : ''
+    if (prev && gap !== ' ' && gap !== '') {
+      runs.push(run)
+      run = []
+    }
+    run.push(tok)
+  }
+  if (run.length) runs.push(run)
+  return runs
+}
 
 export interface PhraseRow {
   phrase: string
@@ -237,14 +250,15 @@ export interface PhraseRow {
  *  of the included words. */
 export function countPhrases(texts: Iterable<string>, length: number, filter: WordFilter, minCount: number): PhraseRow[] {
   const counts = new Map<string, number>()
-  for (const text of texts) {
-    for (const run of text.toLowerCase().match(RUN_RE) || []) {
-      const words = run.split(' ')
-      for (let i = 0; i + length <= words.length; i++) {
-        const gram = words.slice(i, i + length)
+  for (const raw of texts) {
+    const text = raw.toLowerCase()
+    for (const run of wordRuns(text)) {
+      for (let i = 0; i + length <= run.length; i++) {
+        const toks = run.slice(i, i + length)
+        const gram = toks.map((t) => t.word)
         if (filter.exclude.has(gram[0]) || filter.exclude.has(gram[length - 1])) continue
         if (filter.include && !gram.some((w) => filter.include!.has(w))) continue
-        const phrase = gram.join(' ')
+        const phrase = text.slice(toks[0].start, toks[length - 1].end)
         counts.set(phrase, (counts.get(phrase) || 0) + 1)
       }
     }
@@ -252,7 +266,7 @@ export function countPhrases(texts: Iterable<string>, length: number, filter: Wo
   return [...counts.entries()]
     .filter(([, count]) => count >= minCount)
     .map(([phrase, count]) => ({ phrase, count }))
-    .sort((a, b) => b.count - a.count || a.phrase.localeCompare(b.phrase))
+    .sort((a, b) => b.count - a.count || compareText(a.phrase, b.phrase))
 }
 
 /** Split text into sentences: at . ! ? and line breaks. */
@@ -262,7 +276,7 @@ export function sentencesOf(text: string): string[] {
 
 /** The distinct words of a sentence, lower-cased. */
 function sentenceWords(sentence: string): Set<string> {
-  return new Set(sentence.toLowerCase().match(TOKEN_RE) || [])
+  return new Set(wordTokens(sentence.toLowerCase()).map((t) => t.word))
 }
 
 export interface AssociationRow {
@@ -297,7 +311,7 @@ function logLikelihood(a: number, b: number, c: number, d: number): number {
  *  would explain, strongest first. Each sentence counts once per word
  *  however often the word repeats in it. The focus word is matched even
  *  when it's on the exclude list; the associated words honour the
- *  include and exclude lists and must be at least two letters long. */
+ *  include and exclude lists and must be words that count (isCountedWord). */
 export function wordAssociations(texts: Iterable<string>, focus: string, filter: WordFilter, minTogether: number): Associations {
   const target = focus.trim().toLowerCase()
   let sentences = 0
@@ -312,7 +326,7 @@ export function wordAssociations(texts: Iterable<string>, focus: string, filter:
       const hasFocus = words.has(target)
       if (hasFocus) focusSentences++
       for (const w of words) {
-        if (w === target || w.length < 2 || filter.exclude.has(w)) continue
+        if (w === target || !isCountedWord(w) || filter.exclude.has(w)) continue
         if (filter.include && !filter.include.has(w)) continue
         withWord.set(w, (withWord.get(w) || 0) + 1)
         if (hasFocus) together.set(w, (together.get(w) || 0) + 1)

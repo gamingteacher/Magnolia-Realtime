@@ -14,10 +14,25 @@
  * strip; the choice is remembered on this computer. While collapsed,
  * clicking a tab shows its buttons over the panels until you click a
  * button or anywhere else.
+ *
+ * A button is at least 76px wide, and wider when its label needs it: as
+ * wide as the label's widest line when it's wrapped onto two lines as
+ * evenly as its word breaks allow (see twoLineWidth). So a long word in
+ * any language ("Woordfrequenties") widens its button instead of running
+ * into the next one, and no label takes a third line. When that makes
+ * the tab too wide for the window, labels that are one long word go back
+ * to 76px and are hyphenated in the interface language (data-tight
+ * "words"). If even that doesn't fit (a narrow window, a long language,
+ * or a tab with many buttons), the buttons scroll sideways, so labels
+ * keep to two lines and the ribbon to one height. They scroll between
+ * chevrons like the Icons and Text toolbar's, which fade in while there's
+ * more that way; clicking one scrolls a page. The chevrons are the start and end ones (left and
+ * right, or the other way round in a right-to-left language).
  */
-import { useCallback, useEffect, useState } from 'react'
-import { Icon, faChevronUp, faChevronDown, type IconComponent } from '../Icon'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Icon, faChevronUp, faChevronDown, faChevronsLeft, faChevronsRight, type IconComponent } from '../Icon'
 import { PALETTE_ICON_CLASS } from '../../utils/icon-tint'
+import { useTranslation } from 'react-i18next'
 
 export interface RibbonButtonDef {
   id: string
@@ -102,6 +117,7 @@ export function useRibbon(tabs: RibbonTabDef[]) {
 type RibbonState = ReturnType<typeof useRibbon>
 
 export function RibbonTabs({ ribbon }: { ribbon: RibbonState }) {
+  const { t } = useTranslation()
   const { tabs, active, collapsed, peek, selectTab, toggleCollapsed } = ribbon
   const onKeyDown = (e: React.KeyboardEvent, index: number) => {
     if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return
@@ -112,7 +128,7 @@ export function RibbonTabs({ ribbon }: { ribbon: RibbonState }) {
     strip?.querySelectorAll<HTMLButtonElement>('.ribbon-tab')[next]?.focus()
   }
   return (
-    <div className={`ribbon-tabs${collapsed && !peek ? ' ribbon-collapsed' : ''}`} role="tablist" aria-label="Toolbar">
+    <div className={`ribbon-tabs${collapsed && !peek ? ' ribbon-collapsed' : ''}`} role="tablist" aria-label={t('toolbar.label')}>
       {tabs.map((tab, index) => (
         <button
           key={tab.id}
@@ -132,8 +148,8 @@ export function RibbonTabs({ ribbon }: { ribbon: RibbonState }) {
         type="button"
         className="ribbon-collapse"
         onClick={toggleCollapsed}
-        title={collapsed ? 'Show the ribbon' : 'Hide the ribbon'}
-        aria-label={collapsed ? 'Show the ribbon' : 'Hide the ribbon'}
+        title={collapsed ? t('toolbar.showRibbon') : t('toolbar.hideRibbon')}
+        aria-label={collapsed ? t('toolbar.showRibbon') : t('toolbar.hideRibbon')}
       >
         <Icon icon={collapsed ? faChevronDown : faChevronUp} />
       </button>
@@ -141,30 +157,166 @@ export function RibbonTabs({ ribbon }: { ribbon: RibbonState }) {
   )
 }
 
+/** Fit the ribbon's buttons to the window: narrow them in stages while
+ *  they're wider than it (data-tight, above), then let them scroll, with
+ *  the chevrons shown while there's more on their side. Checked again on
+ *  every resize, scroll and tab. */
+function useRibbonFit(active: RibbonTabDef, shown: boolean) {
+  const bodyRef = useRef<HTMLDivElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const [overflow, setOverflow] = useState(false)
+  const [canStart, setCanStart] = useState(false)
+  const [canEnd, setCanEnd] = useState(false)
+
+  const updateChevrons = useCallback(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const { start, end } = scrollRoom(el)
+    setCanStart(start > 1)
+    setCanEnd(end > 1)
+  }, [])
+
+  useLayoutEffect(() => {
+    const body = bodyRef.current
+    const scroller = scrollRef.current
+    if (!body || !scroller) return
+    const fit = (): void => {
+      // Room inside the body's padding, whether or not the chevrons are
+      // taking some of it now.
+      const style = getComputedStyle(body)
+      const room = body.clientWidth - parseFloat(style.paddingInlineStart) - parseFloat(style.paddingInlineEnd)
+      const fits = (): boolean => scroller.scrollWidth <= room + 1
+      body.removeAttribute('data-tight')
+      if (!fits()) body.setAttribute('data-tight', 'words')
+      setOverflow(!fits())
+      updateChevrons()
+    }
+    fit()
+    // The window (the body) and the groups, which change size when their
+    // labels do (another language) or buttons come and go.
+    // Refit on the next frame: fitting resizes the groups, which would
+    // otherwise notify this observer again within the same frame.
+    let frame = 0
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(fit)
+    })
+    observer.observe(body)
+    for (const group of scroller.children) observer.observe(group)
+    return () => {
+      observer.disconnect()
+      cancelAnimationFrame(frame)
+    }
+  }, [active.id, active.groups.length, shown, updateChevrons])
+
+  // A new tab starts scrolled to its first button.
+  useLayoutEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollLeft = 0
+  }, [active.id])
+
+  // The chevrons take room when they appear, so recheck which show then.
+  useLayoutEffect(updateChevrons, [overflow, updateChevrons])
+
+  /** Scroll a page towards the end (1) or the start (-1). */
+  const scrollPage = (towards: 1 | -1): void => {
+    const el = scrollRef.current
+    if (!el) return
+    const rtl = getComputedStyle(el).direction === 'rtl'
+    el.scrollBy({ left: towards * (rtl ? -1 : 1) * el.clientWidth * 0.8, behavior: 'smooth' })
+  }
+  return { bodyRef, scrollRef, overflow, canStart, canEnd, updateChevrons, scrollPage }
+}
+
+/** How far `el` can scroll towards its start and its end. In a
+ *  right-to-left element scrollLeft runs from 0 down to negative values,
+ *  so the distance from the start is its size either way. */
+export function scrollRoom(el: HTMLElement): { start: number; end: number } {
+  const fromStart = Math.abs(el.scrollLeft)
+  return { start: fromStart, end: el.scrollWidth - el.clientWidth - fromStart }
+}
+
+/** A chevron beside the scrolling buttons, for mouse users without a
+ *  sideways scroll. Hidden from keyboards and screen readers, which reach
+ *  every button by Tab (and the focused button scrolls into view). */
+function ScrollChevron({ side, shown, onClick }: { side: 'start' | 'end'; shown: boolean; onClick: () => void }) {
+  // Left- and right-pointing in a left-to-right page; mirrored (with the
+  // other direction-giving icons) in a right-to-left one.
+  return (
+    <button type="button" className="ribbon-scroll-hint" data-shown={shown || undefined} tabIndex={-1} aria-hidden onClick={onClick}>
+      <Icon icon={side === 'start' ? faChevronsLeft : faChevronsRight} />
+    </button>
+  )
+}
+
 export function RibbonBody({ ribbon }: { ribbon: RibbonState }) {
   const { active, collapsed, peek, endPeek } = ribbon
+  const fit = useRibbonFit(active, !collapsed || peek)
   if (collapsed && !peek) return null
   const body = (
-    <div className="ribbon-body" role="tabpanel" aria-label={active.label}>
-      {active.groups.map((group) => (
-        <div key={group.label} className="ribbon-group" role="group" aria-label={group.label}>
-          <div className="ribbon-group-buttons">
-            {group.buttons.map((b) => <RibbonButton key={b.id} def={b} onDone={endPeek} />)}
+    <div ref={fit.bodyRef} className="ribbon-body" role="tabpanel" aria-label={active.label}>
+      {fit.overflow && <ScrollChevron side="start" shown={fit.canStart} onClick={() => fit.scrollPage(-1)} />}
+      <div ref={fit.scrollRef} className="ribbon-scroll" onScroll={fit.updateChevrons}>
+        {active.groups.map((group) => (
+          <div key={group.label} className="ribbon-group" role="group" aria-label={group.label}>
+            <div className="ribbon-group-buttons">
+              {group.buttons.map((b) => <RibbonButton key={b.id} def={b} onDone={endPeek} />)}
+            </div>
+            <div className="ribbon-group-label">{group.label}</div>
           </div>
-          <div className="ribbon-group-label">{group.label}</div>
-        </div>
-      ))}
+        ))}
+      </div>
+      {fit.overflow && <ScrollChevron side="end" shown={fit.canEnd} onClick={() => fit.scrollPage(1)} />}
     </div>
   )
   // Peeking from a collapsed ribbon: float over the panels below.
   return peek ? <div className="ribbon-peek-host">{body}</div> : body
 }
 
+/** The narrowest width at which `text` fits on at most two lines, given
+ *  `measure` (a run of text's width). Lines break after spaces and
+ *  hyphens, as the browser breaks them, and never inside a word. */
+export function twoLineWidth(text: string, measure: (s: string) => number): number {
+  const parts = text.trim().split(/(?<=[\s-])/)
+  let best = measure(text.trim())
+  for (let i = 1; i < parts.length; i++) {
+    const first = measure(parts.slice(0, i).join('').trimEnd())
+    const second = measure(parts.slice(i).join(''))
+    best = Math.min(best, Math.max(first, second))
+  }
+  return best
+}
+
+/** `label`'s two-line width in ems of its own font size, so it holds in
+ *  the compact ribbon's smaller type too. Measured with a hidden copy of
+ *  the label, so it's in exactly the font the label is drawn in. */
+function labelWidthEm(label: HTMLElement): number | null {
+  const probe = document.createElement('span')
+  probe.className = label.className
+  probe.style.cssText = 'position:absolute;visibility:hidden;white-space:pre;min-width:0;min-height:0'
+  label.parentElement?.appendChild(probe)
+  const measure = (s: string): number => { probe.textContent = s; return probe.getBoundingClientRect().width }
+  const px = twoLineWidth(label.textContent ?? '', measure)
+  const size = parseFloat(getComputedStyle(probe).fontSize)
+  probe.remove()
+  // A hair extra, so rounding never pushes the last word onto a new line.
+  return size > 0 && px > 0 ? px / size + 0.05 : null
+}
+
 function RibbonButton({ def, onDone }: { def: RibbonButtonDef; onDone: () => void }) {
+  const labelRef = useRef<HTMLSpanElement>(null)
+  useLayoutEffect(() => {
+    const el = labelRef.current
+    if (!el) return
+    const em = labelWidthEm(el)
+    el.style.minWidth = em ? `${em.toFixed(3)}em` : ''
+    // A label with nowhere to break but inside its word.
+    el.toggleAttribute('data-one-word', !/[\s-]/.test(def.label.trim()))
+  }, [def.label])
   return (
     <button
       type="button"
       className="ribbon-btn"
+      data-ribbon-id={def.id}
       aria-pressed={def.pressed}
       aria-disabled={def.disabledReason ? true : undefined}
       title={def.disabledReason ?? def.title ?? def.label}
@@ -177,7 +329,7 @@ function RibbonButton({ def, onDone }: { def: RibbonButtonDef; onDone: () => voi
         {def.glyph ?? (def.icon && <Icon icon={def.icon} className={PALETTE_ICON_CLASS} style={def.iconStyle} />)}
         {def.badge && <span className="ribbon-badge" aria-hidden />}
       </span>
-      <span className="ribbon-label">{def.label}</span>
+      <span ref={labelRef} className="ribbon-label">{def.label}</span>
     </button>
   )
 }

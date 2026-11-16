@@ -5,10 +5,17 @@
  *   node scripts/release.mjs release <mac|win|linux> [--no-upload]
  *     (npm run release:mac / release:win / release:linux.) Build this
  *     platform's installers and update payloads, collect them, and upload
- *     them to the draft release for package.json's version (vX.Y.Z). Loads
+ *     them to the draft release for package.json's version (vX.Y.Z).
+ *     Windows and Linux are built on GitHub: `release win` and `release
+ *     linux` start the Release (Windows) or Release (Linux) workflow, which
+ *     builds, smoke-tests and uploads, and follow it until it's done, from
+ *     any machine. (Linux builds on Ubuntu 22.04: a build from a newer
+ *     distro doesn't run on older ones; issue #31.) With --no-upload they
+ *     build locally instead, on that platform; the workflows use this. Loads
  *     the updater key from ~/.tauri/magnolia-updater.key when
  *     TAURI_SIGNING_PRIVATE_KEY isn't set; on macOS, needs APPLE_ID and
  *     APPLE_PASSWORD (or APPLE_APP_SPECIFIC_PASSWORD) for notarization,
+ *     reading them from the "Magnolia notarization" keychain item if unset,
  *     signs with Magnolia's Developer ID unless APPLE_SIGNING_IDENTITY says
  *     otherwise, and builds both architectures.
  *
@@ -95,7 +102,11 @@ function collect(platform) {
     copy(findOne(join(bundle, 'appimage'), /\.AppImage$/), 'Magnolia-linux-x86_64.AppImage')
     copy(findOne(join(bundle, 'appimage'), /\.AppImage\.sig$/), 'Magnolia-linux-x86_64.AppImage.sig')
     copy(findOne(join(bundle, 'deb'), /\.deb$/), 'Magnolia-linux-amd64.deb')
-    copy(findOne(join(bundle, 'rpm'), /\.rpm$/), 'Magnolia-linux-x86_64.rpm')
+    copy(findOne(join(bundle, 'deb'), /\.deb\.sig$/), 'Magnolia-linux-amd64.deb.sig')
+    if (!isPrerelease()) {
+      copy(findOne(join(bundle, 'rpm'), /\.rpm$/), 'Magnolia-linux-x86_64.rpm')
+      copy(findOne(join(bundle, 'rpm'), /\.rpm\.sig$/), 'Magnolia-linux-x86_64.rpm.sig')
+    }
   } else {
     throw new Error(`Unknown platform "${platform}" (mac-arm64, mac-x64, win, linux)`)
   }
@@ -139,6 +150,14 @@ function manifests(version, dir, notesFile, baseUrl) {
   add('darwin-x86_64', 'Magnolia-mac-x64.app.tar.gz')
   add('windows-x86_64', 'Magnolia-win-x64.exe')
   add('linux-x86_64', 'Magnolia-linux-x86_64.AppImage')
+  // A deb or rpm install looks for its own entry first and otherwise falls
+  // back to linux-x86_64, the AppImage, which it can't install. So a package
+  // without a signature would break its installs' updates: stop here instead.
+  for (const pkg of ['Magnolia-linux-amd64.deb', 'Magnolia-linux-x86_64.rpm']) {
+    if (has(pkg) && !has(`${pkg}.sig`)) throw new Error(`${pkg} has no .sig beside it in ${dir}, so its installs couldn't update.`)
+  }
+  add('linux-x86_64-deb', 'Magnolia-linux-amd64.deb')
+  add('linux-x86_64-rpm', 'Magnolia-linux-x86_64.rpm')
   const notes = notesFile ? readFileSync(notesFile, 'utf-8') : ''
   writeFileSync(join(dir, 'latest.json'), JSON.stringify({ version: v, notes, pub_date: date, platforms }, null, 2) + '\n')
   console.log(`  latest.json (${Object.keys(platforms).join(', ')})`)
@@ -167,11 +186,32 @@ function manifests(version, dir, notesFile, baseUrl) {
 }
 
 const version = () => JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8')).version
+/**
+ * A test build such as 2.1.0-beta.1. RPM won't accept a hyphen in a version
+ * and Tauri can't give the .rpm a version of its own, so these builds have
+ * no .rpm: Fedora testers use the AppImage.
+ */
+const isPrerelease = () => version().includes('-')
 const isWin = process.platform === 'win32'
 
 /** Run a command with its output shown; npm and gh are .cmd files on Windows. */
 function run(cmd, args, env = process.env) {
   execFileSync(cmd, args, { stdio: 'inherit', env, shell: isWin, cwd: root })
+}
+
+/** The keychain item holding the Apple ID (its account) and app-specific password. */
+const KEYCHAIN_SERVICE = 'Magnolia notarization'
+
+/** The Apple ID and password saved in the keychain, or null if there's none. */
+function keychainNotarization() {
+  const find = (args) => execFileSync('security', ['find-generic-password', '-s', KEYCHAIN_SERVICE, ...args], { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] })
+  try {
+    const account = find([]).match(/"acct"<blob>="([^"]*)"/)?.[1]
+    const password = find(['-w']).trim()
+    return account && password ? { account, password } : null
+  } catch {
+    return null
+  }
 }
 
 /** The environment for a signed release build, or an error saying what's missing. */
@@ -192,18 +232,76 @@ function releaseEnv(platform) {
     env.APPLE_SIGNING_IDENTITY ||= MAC_IDENTITY
     env.APPLE_TEAM_ID ||= MAC_TEAM_ID
     env.APPLE_PASSWORD ||= env.APPLE_APP_SPECIFIC_PASSWORD
+    // Otherwise the Apple ID and password come from the login keychain, so
+    // the password needn't be in a file or the shell history.
+    if (!env.APPLE_ID || !env.APPLE_PASSWORD) {
+      const saved = keychainNotarization()
+      if (saved) {
+        env.APPLE_ID ||= saved.account
+        env.APPLE_PASSWORD ||= saved.password
+      }
+    }
     // Unsigned Mac builds are blocked by Gatekeeper, and 1.x installs only
     // update to a build signed with the same Developer ID, so don't go on.
     const missing = ['APPLE_ID', 'APPLE_PASSWORD'].filter((v) => !env[v])
     if (missing.length) {
-      throw new Error(`Set ${missing.join(' and ')} (or APPLE_APP_SPECIFIC_PASSWORD) first, so the build is notarized (see RELEASING.md).`)
+      throw new Error(`Save the Apple ID and app-specific password in the keychain as "${KEYCHAIN_SERVICE}", or set ${missing.join(' and ')}, first, so the build is notarized (see RELEASING.md).`)
     }
   }
   return env
 }
 
+/** Platforms released by a GitHub workflow rather than on this machine. */
+const WORKFLOWS = {
+  win: { file: 'release-windows.yml', name: 'Windows' },
+  linux: { file: 'release-linux.yml', name: 'Linux' }
+}
+
+/**
+ * Run the platform's release workflow on GitHub for the pushed main branch
+ * and follow it to the end. It builds, checks the result starts on clean
+ * machines, and uploads to the vX.Y.Z draft.
+ */
+function releaseOnGitHub(platform) {
+  const { file, name } = WORKFLOWS[platform]
+  const tag = `v${version()}`
+  const gh = (args) => execFileSync('gh', [...args, '--repo', REPO], { encoding: 'utf-8', shell: isWin, cwd: root }).trim()
+  try {
+    gh(['release', 'view', tag, '--json', 'tagName'])
+  } catch {
+    throw new Error(`There's no ${tag} release on GitHub yet: create the draft first (see RELEASING.md).`)
+  }
+  // The workflow builds what's on GitHub, so that has to be this commit.
+  run('git', ['fetch', '--quiet', 'origin', 'main'])
+  const head = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf-8', cwd: root }).trim()
+  const remote = execFileSync('git', ['rev-parse', 'origin/main'], { encoding: 'utf-8', cwd: root }).trim()
+  if (head !== remote) {
+    throw new Error(`This checkout (${head.slice(0, 7)}) isn't what's on GitHub's main (${remote.slice(0, 7)}): push or pull first, so the ${name} build is of the same commit.`)
+  }
+  const started = Date.now() - 5000
+  console.log(`Starting the Release (${name}) workflow for ${tag} (${head.slice(0, 7)})…`)
+  gh(['workflow', 'run', file, '--ref', 'main'])
+  // `workflow run` doesn't say which run it started: find the new one.
+  let id
+  for (let i = 0; i < 30 && !id; i++) {
+    execFileSync(process.execPath, ['-e', 'setTimeout(() => {}, 2000)'])
+    const runs = JSON.parse(gh(['run', 'list', '--workflow', file, '--event', 'workflow_dispatch', '--limit', '5', '--json', 'databaseId,createdAt,headSha']))
+    id = runs.find((r) => r.headSha === head && Date.parse(r.createdAt) >= started)?.databaseId
+  }
+  if (!id) throw new Error('Started the workflow but couldn\'t find its run: follow it in the Actions tab on GitHub.')
+  const url = `https://github.com/${REPO}/actions/runs/${id}`
+  console.log(`Following ${url}`)
+  try {
+    run('gh', ['run', 'watch', String(id), '--exit-status', '--interval', '20', '--repo', REPO])
+  } catch {
+    throw new Error(`The ${name} release failed: see ${url}`)
+  }
+  console.log(`\nDone: the ${name} files are built, tested and uploaded to ${tag}.`)
+}
+
 /** Build, collect and (unless --no-upload) upload this platform's assets. */
 function release(platform, upload) {
+  if (WORKFLOWS[platform] && upload) return releaseOnGitHub(platform)
   const host = { darwin: 'mac', win32: 'win', linux: 'linux' }[process.platform]
   if (platform !== host) throw new Error(`Build ${platform} on a ${platform} machine (this one is ${host ?? process.platform}).`)
   const env = releaseEnv(platform)
@@ -216,7 +314,8 @@ function release(platform, upload) {
     }
     for (const target of ['mac-arm64', 'mac-x64']) { console.log(`Collecting ${target}:`); collect(target) }
   } else {
-    run('npm', ['run', 'tauri', 'build'], env)
+    const bundles = platform === 'linux' && isPrerelease() ? ['--', '--bundles', 'appimage,deb'] : []
+    run('npm', ['run', 'tauri', 'build', ...bundles], env)
     console.log(`Collecting ${platform}:`)
     collect(platform)
   }

@@ -16,6 +16,7 @@ import { layoutIcons, buildIconItems, iconRoomAt, ICON_COL_W, LABEL_TO_ICON_GAP,
 import { MemoQuoteIcons } from './MemoQuoteIcons'
 import { useMemoStore } from '../../stores/memo-store'
 import { measureLabelWidth } from '../../utils/measure-text'
+import { useTranslation } from 'react-i18next'
 
 interface CpRange { startCp: number; endCp: number }
 
@@ -235,6 +236,7 @@ function getPdfRegionYBounds(
 }
 
 export function RichMarginColumn({ contentRef, containerRef, selections, codes, contentMemos, quotes, rendered, onMemoClick, onMemoPopup, onHoverRange, onHoverSelectionGuid, onHoverRegion, onLockRange, lockedRange, onContextMenu, onQuoteClick, alignRight, viewportRef }: Props) {
+  const { t } = useTranslation()
   const [brackets, setBrackets] = useState<CodeBracket[]>([])
   // This column's own root div — measured against viewportRef so labels
   // know how far they can paint into blank space beyond the column's own
@@ -258,11 +260,16 @@ export function RichMarginColumn({ contentRef, containerRef, selections, codes, 
   // (image / PDF pages) it's supposed to be flush against. Non-zero only
   // when a centering wrapper (like ImageDocumentViewer's) leaves blank
   // space between the content and this column's nominal position.
+  // In a right-to-left interface the column sits to the content's left
+  // and everything in it is mirrored: positions run from its right edge
+  // (labels and icons placed from the start edge, the bracket layer
+  // flipped by CSS), and the flush shift goes the other way.
+  const rtl = columnRef.current ? getComputedStyle(columnRef.current).direction === 'rtl' : false
   const flushShiftPx = (() => {
     const columnRect = columnRef.current?.getBoundingClientRect()
     const contentRect = contentRef.current?.getBoundingClientRect()
     if (!columnRect || !contentRect) return 0
-    return Math.max(0, columnRect.left - (contentRect.right + 8))
+    return Math.max(0, rtl ? contentRect.left - 8 - columnRect.right : columnRect.left - (contentRect.right + 8))
   })()
   // A label on the same row as memo or quote icons stops short of them,
   // so they stay on screen (see iconRoomAt).
@@ -270,7 +277,10 @@ export function RichMarginColumn({ contentRef, containerRef, selections, codes, 
     const columnRect = columnRef.current?.getBoundingClientRect()
     const viewportRect = viewportRef?.current?.getBoundingClientRect()
     if (!columnRect || !viewportRect) return LABEL_W
-    const available = viewportRect.right - (columnRect.left - flushShiftPx + labelLeft) - LABEL_EDGE_PAD - iconRoomAt(groups, labelTop, LABEL_H)
+    const room = rtl
+      ? columnRect.right + flushShiftPx - labelLeft - viewportRect.left
+      : viewportRect.right - (columnRect.left - flushShiftPx + labelLeft)
+    const available = room - LABEL_EDGE_PAD - iconRoomAt(groups, labelTop, LABEL_H)
     return Math.max(LABEL_W, available)
   }
   const [iconGroups, setIconGroups] = useState<IconGroup[]>([])
@@ -374,7 +384,7 @@ export function RichMarginColumn({ contentRef, containerRef, selections, codes, 
   return (
     <div ref={columnRef} style={{
       position: useFlexWidth ? 'relative' : 'absolute',
-      ...(useFlexWidth ? {} : { left: 0, width: preferredW }),
+      ...(useFlexWidth ? {} : { insetInlineStart: 0, width: preferredW }),
       top: 0,
       ...(useFlexWidth ? { width: '100%', minWidth: bracketZoneW + iconsW } : {}),
       minHeight: '100%',
@@ -386,7 +396,7 @@ export function RichMarginColumn({ contentRef, containerRef, selections, codes, 
         (possibly further-right) box — see flushShiftPx above. The box
         itself keeps its normal reserved width; only what's painted inside
         it moves. */}
-    <div style={{ position: 'absolute', inset: 0, transform: `translateX(${-flushShiftPx}px)`, pointerEvents: 'none' }}>
+    <div style={{ position: 'absolute', inset: 0, transform: `translateX(${rtl ? flushShiftPx : -flushShiftPx}px)`, pointerEvents: 'none' }}>
       {/* Code bracket lines */}
       {brackets.map((b, i) => {
         const barX = b.column * COL_W + 4
@@ -394,9 +404,13 @@ export function RichMarginColumn({ contentRef, containerRef, selections, codes, 
         const botCap = capGeometry(b.column, b.bottomCapTargetCol, 4)
         return (
           <div key={`bracket-${i}`} style={{ pointerEvents: 'auto' }}>
-            {bracketPieces(barX, b.top + 4, b.height - 8, topCap, botCap, b.color).map((pieceStyle, j) => (
-              <div key={j} style={pieceStyle} />
-            ))}
+            {/* Its own full-size layer, so a right-to-left interface can
+                mirror the bracket by flipping it (data-bracket-overlay). */}
+            <div data-bracket-overlay="1" style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+              {bracketPieces(barX, b.top + 4, b.height - 8, topCap, botCap, b.color).map((pieceStyle, j) => (
+                <div key={j} style={{ ...pieceStyle, pointerEvents: 'auto' }} />
+              ))}
+            </div>
             {/* Code name label — sits just to the right of the rightmost
                 bracket column at this label's Y, and truncates only once
                 it runs out of room before the pane's right edge. */}
@@ -461,7 +475,7 @@ export function RichMarginColumn({ contentRef, containerRef, selections, codes, 
           onContextMenu?.(e, {
             overlappingMemos: memos.map((m) => ({
               guid: m.guid,
-              title: m.title || 'Untitled Memo',
+              title: m.title || t('memos.untitled'),
               startCp: m.startPosition ?? 0,
               endCp: m.endPosition ?? m.startPosition ?? 0
             }))

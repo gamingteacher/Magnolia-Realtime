@@ -3,13 +3,16 @@ import { useProjectStore, useCheckoutLockedBy, checkoutLockedTitle } from '../..
 import { useDocumentStore } from '../../stores/document-store'
 import { useRelationshipMapStore } from '../../stores/relationship-map-store'
 import { useMemoStore } from '../../stores/memo-store'
-import { Icon, faXmark, faUpRightFromSquare, faDownLeftAndUpRightToCenter, faChevronDown, faChevronRight, MEMO_ICON, faMagnifyingGlass } from '../Icon'
+import { Icon, faXmark, faUpRightFromSquare, faDownLeftAndUpRightToCenter, faChevronDown, faChevronRight, MEMO_ICON, faMagnifyingGlass, faExclamationTriangle } from '../Icon'
+import { OPEN_PROJECT_ID } from '../Analysis/intercoder/intercoder-model'
 import type { AnalysisToolType, SavedAnalysis } from '../../models/types'
 import { TOOL_REGISTRY } from '../../utils/tool-registry'
 import { PALETTE_ICON_CLASS } from '../../utils/icon-tint'
 import { toolColors } from '../../utils/tool-colors'
 import { makeMapTabId } from '../../utils/tab-ids'
 import { useClampedMenuPosition } from '../../utils/use-clamped-menu-position'
+import { useTranslation } from 'react-i18next'
+import { compareText, formatNumber } from '../../i18n'
 
 interface Props {
   onOpen: (toolType: AnalysisToolType, savedConfig: any) => void
@@ -37,10 +40,12 @@ const TOOL_ORDER: AnalysisToolType[] = [
   'code-orders',
   'word-frequencies',
   'word-combinations',
+  'intercoder-agreement',
   'relationship-map'
 ]
 
 export function SavedAnalyses({ onOpen, onClose, onPopOut, isPoppedOut, findMemoGuidForAnalysis, onOpenAnalysisMemo }: Props) {
+  const { t } = useTranslation()
   // Enforced checkout lock: opening/browsing saved analyses stays live;
   // rename/delete/memo controls stay clickable but intercept and prompt
   // (Take Over / Create a Copy / Cancel) while someone else holds the
@@ -49,6 +54,29 @@ export function SavedAnalyses({ onOpen, onClose, onPopOut, isPoppedOut, findMemo
   const promptCheckoutLocked = () => useProjectStore.getState().promptCheckoutConflict()
   const savedAnalyses = useProjectStore((s) => s.savedAnalyses) ?? []
   const setSavedAnalyses = useProjectStore((s) => s.setSavedAnalyses)
+
+  // Inter-coder analyses with a coder's project that's no longer where it
+  // was (moved, renamed, deleted): checked when the list changes and when
+  // the window regains focus (the file may have been put back).
+  const [missingProjects, setMissingProjects] = useState<Set<string>>(new Set())
+  useEffect(() => {
+    let live = true
+    const check = () => {
+      const byGuid = savedAnalyses
+        .filter((a) => a.toolType === 'intercoder-agreement')
+        .map((a) => ({ guid: a.guid, paths: ((a.config as { paths?: string[] } | undefined)?.paths ?? []).filter((p) => p !== OPEN_PROJECT_ID) }))
+      const all = [...new Set(byGuid.flatMap((a) => a.paths))]
+      if (all.length === 0) { setMissingProjects(new Set()); return }
+      void window.api.missingFiles(all).then((gone) => {
+        if (!live) return
+        const goneSet = new Set(gone)
+        setMissingProjects(new Set(byGuid.filter((a) => a.paths.some((p) => goneSet.has(p))).map((a) => a.guid)))
+      }).catch(() => { /* leave as is */ })
+    }
+    check()
+    window.addEventListener('focus', check)
+    return () => { live = false; window.removeEventListener('focus', check) }
+  }, [savedAnalyses])
 
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; guid: string } | null>(null)
   const menuPos = useClampedMenuPosition(contextMenu)
@@ -96,7 +124,7 @@ export function SavedAnalyses({ onOpen, onClose, onPopOut, isPoppedOut, findMemo
     extras.sort()
     orderedKeys.push(...extras)
     return orderedKeys.map((toolType) => {
-      const items = byTool.get(toolType)!.slice().sort((a, b) => a.name.localeCompare(b.name))
+      const items = byTool.get(toolType)!.slice().sort((a, b) => compareText(a.name, b.name))
       return {
         toolType,
         label: TOOL_REGISTRY[toolType]?.label ?? toolType,
@@ -242,8 +270,8 @@ export function SavedAnalyses({ onOpen, onClose, onPopOut, isPoppedOut, findMemo
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Escape') closeSearch() }}
-            placeholder="Filter analyses..."
-            aria-label="Filter analyses"
+            placeholder={t('analyses.filterPlaceholder')}
+            aria-label={t('analyses.filter')}
             autoFocus
             style={{
               flex: 1,
@@ -261,32 +289,32 @@ export function SavedAnalyses({ onOpen, onClose, onPopOut, isPoppedOut, findMemo
             }}
           />
         ) : (
-          <span style={{ flex: 1 }}>Saved Analyses</span>
+          <span style={{ flex: 1 }}>{t('panes.analyses')}</span>
         )}
         {savedAnalyses.length > 0 && (
           <button
             className="panel-header-search"
             onClick={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
-            title={searchOpen ? 'Close search' : 'Filter analyses'}
-            aria-label={searchOpen ? 'Close search' : 'Filter analyses'}
+            title={searchOpen ? t('common.closeSearch') : t('analyses.filter')}
+            aria-label={searchOpen ? t('common.closeSearch') : t('analyses.filter')}
           >
             <Icon icon={searchOpen ? faXmark : faMagnifyingGlass} />
           </button>
         )}
-        {onPopOut && <button className="panel-header-popout" onClick={onPopOut} title={isPoppedOut ? "Pop back in" : "Pop out"} aria-label={isPoppedOut ? "Pop pane back into main window" : "Pop pane out into its own window"}><Icon icon={isPoppedOut ? faDownLeftAndUpRightToCenter : faUpRightFromSquare} /></button>}
-        {onClose && <button className="panel-header-close" onClick={onClose} title="Close panel" aria-label="Close panel"><Icon icon={faXmark} /></button>}
+        {onPopOut && <button className="panel-header-popout" onClick={onPopOut} title={isPoppedOut ? t('panel.popIn') : t('panel.popOut')} aria-label={isPoppedOut ? t('panel.popInLabel') : t('panel.popOutLabel')}><Icon icon={isPoppedOut ? faDownLeftAndUpRightToCenter : faUpRightFromSquare} /></button>}
+        {onClose && <button className="panel-header-close" onClick={onClose} title={t('panel.close')} aria-label={t('panel.close')}><Icon icon={faXmark} /></button>}
       </div>
       <div className="panel-content">
         {savedAnalyses.length === 0 && (
           <div className="empty-state" style={{ padding: 20, textAlign: 'center', color: 'var(--text-muted)', fontSize: 'var(--font-size-sm)' }}>
-            No saved analyses.
+            {t('analyses.empty')}
             <br />
-            Open an analysis tool and click Save Analysis.
+            {t('analyses.emptyHint')}
           </div>
         )}
         {savedAnalyses.length > 0 && filteredGroups.length === 0 && (
           <div className="empty-state" style={{ padding: 20, textAlign: 'center', color: 'var(--text-muted)', fontSize: 'var(--font-size-sm)' }}>
-            No analyses match "{trimmedSearch}".
+            {t('analyses.noMatch', { query: trimmedSearch })}
           </div>
         )}
         {filteredGroups.map((group, idx) => {
@@ -318,7 +346,7 @@ export function SavedAnalyses({ onOpen, onClose, onPopOut, isPoppedOut, findMemo
                   <Icon icon={group.icon} className={PALETTE_ICON_CLASS} style={{ fontSize: 11, opacity: 0.85, flexShrink: 0, width: 14, textAlign: 'center', color: 'var(--text-secondary)' }} />
                 )}
                 <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{group.label}</span>
-                <span style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 500 }}>{group.items.length}</span>
+                <span style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 500 }}>{formatNumber(group.items.length)}</span>
               </div>
               {!isCollapsed && group.items.map((sa) => {
                 const isSelected = selectedGuids.has(sa.guid)
@@ -387,11 +415,16 @@ export function SavedAnalyses({ onOpen, onClose, onPopOut, isPoppedOut, findMemo
                         <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {sa.name}
                         </span>
+                        {missingProjects.has(sa.guid) && (
+                          <span title={t('analyses.projectMissing')} style={{ display: 'inline-flex', flexShrink: 0, color: 'var(--warning, #c68a00)' }}>
+                            <Icon icon={faExclamationTriangle} style={{ fontSize: 11 }} />
+                          </span>
+                        )}
                         {findMemoGuidForAnalysis?.(sa.guid) && (
                           <Icon
                             icon={MEMO_ICON}
                             style={{ fontSize: 11, color: 'var(--memo-icon-color)', flexShrink: 0, cursor: 'pointer' }}
-                            title="Open memo"
+                            title={t('common.openMemo')}
                             onClick={(e) => {
                               ;(e as any).stopPropagation()
                               onOpenAnalysisMemo?.(sa.guid)
@@ -428,7 +461,7 @@ export function SavedAnalyses({ onOpen, onClose, onPopOut, isPoppedOut, findMemo
                   setContextMenu(null)
                 }}
               >
-                Open
+                {t('common.open')}
               </div>
               <div
                 className="context-menu-item"
@@ -443,7 +476,7 @@ export function SavedAnalyses({ onOpen, onClose, onPopOut, isPoppedOut, findMemo
                   }
                 }}
               >
-                Rename
+                {t('common.rename')}
               </div>
               {onOpenAnalysisMemo && (
                 <div
@@ -455,7 +488,7 @@ export function SavedAnalyses({ onOpen, onClose, onPopOut, isPoppedOut, findMemo
                     onOpenAnalysisMemo(contextMenu.guid)
                   }}
                 >
-                  {findMemoGuidForAnalysis?.(contextMenu.guid) ? 'View Memo' : 'Add Memo'}
+                  {findMemoGuidForAnalysis?.(contextMenu.guid) ? t('common.viewMemo') : t('common.addMemo')}
                 </div>
               )}
               <div className="context-menu-separator" />
@@ -467,7 +500,7 @@ export function SavedAnalyses({ onOpen, onClose, onPopOut, isPoppedOut, findMemo
             title={lockedBy ? checkoutLockedTitle(lockedBy) : undefined}
             onClick={requestBulkDelete}
           >
-            {selectedGuids.size > 1 ? `Delete ${selectedGuids.size} analyses` : 'Delete'}
+            {selectedGuids.size > 1 ? t('analyses.deleteCount', { count: selectedGuids.size }) : t('common.delete')}
           </div>
         </div>
       )}
@@ -481,15 +514,15 @@ export function SavedAnalyses({ onOpen, onClose, onPopOut, isPoppedOut, findMemo
         >
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h2 style={{ margin: '0 0 12px' }}>
-              {deleteConfirm.length > 1 ? `Delete ${deleteConfirm.length} analyses` : 'Delete analysis'}
+              {deleteConfirm.length > 1 ? t('analyses.deleteCount', { count: deleteConfirm.length }) : t('analyses.deleteAnalysis')}
             </h2>
             <p style={{ margin: '0 0 16px', fontSize: 'var(--font-size-sm)' }}>
               {deleteConfirm.length > 1
-                ? `Delete ${deleteConfirm.length} saved analyses? Any of them currently open in a tab or window will be closed. This cannot be undone.`
-                : `Delete "${deleteConfirm[0].name}"? If it's currently open, it will be closed. This cannot be undone.`}
+                ? t('analyses.deleteCountConfirm', { count: deleteConfirm.length })
+                : t('analyses.deleteOneConfirm', { name: deleteConfirm[0].name })}
             </p>
             <div className="modal-actions">
-              <button className="secondary" onClick={() => setDeleteConfirm(null)}>Cancel</button>
+              <button className="secondary" onClick={() => setDeleteConfirm(null)}>{t('common.cancel')}</button>
               <button
                 style={{ background: 'var(--danger)' }}
                 onClick={() => {
@@ -501,7 +534,7 @@ export function SavedAnalyses({ onOpen, onClose, onPopOut, isPoppedOut, findMemo
                   if (toDelete) deleteAnalyses(toDelete)
                 }}
               >
-                Delete
+                {t('common.delete')}
               </button>
             </div>
           </div>

@@ -47,7 +47,7 @@ pub fn print(
                         let _ = done.send(match (hr, ok) {
                             (Ok(()), true) => Ok(()),
                             (Err(e), _) => Err(e.to_string()),
-                            _ => Err("WebView2 could not print the document".into()),
+                            _ => Err(crate::i18n::t("print.webview2Failed")),
                         });
                         Ok(())
                     }));
@@ -60,5 +60,5 @@ pub fn print(
         })
         .map_err(|e| e.to_string())?;
     rx.recv_timeout(Duration::from_secs(300))
-        .map_err(|_| "Timed out while printing to PDF".to_string())?
+        .map_err(|_| crate::i18n::t("print.pdfTimedOut"))?
 }

@@ -14,6 +14,8 @@ import type { CSSProperties } from 'react'
 import { Icon, MEMO_RANGED_ICON, MEMO_POINT_ICON, QUOTE_ICON } from '../Icon'
 import { ICON_COL_W, type IconGroup } from './iconLayout'
 import type { Memo, PdfRegionSelection } from '../../models/types'
+import { useTranslation } from 'react-i18next'
+import { formatNumber } from '../../i18n'
 
 interface Props {
   groups: IconGroup[]
@@ -61,7 +63,7 @@ function Badge({ count, color }: { count: number; color: string }) {
       style={{
         position: 'absolute',
         top: -3,
-        right: -3,
+        insetInlineEnd: -3,
         fontSize: 7,
         fontWeight: 700,
         background: color,
@@ -75,7 +77,7 @@ function Badge({ count, color }: { count: number; color: string }) {
         lineHeight: 1
       }}
     >
-      {count}
+      {formatNumber(count)}
     </span>
   )
 }
@@ -92,6 +94,7 @@ export function MemoQuoteIcons({
   lockedRange,
   onQuoteClick
 }: Props) {
+  const { t } = useTranslation()
   const quoteGroups = groups.filter((g) => g.type === 'quote')
   const memoGroups = groups.filter((g) => g.type === 'memo')
 
@@ -106,7 +109,7 @@ export function MemoQuoteIcons({
           style={{
             ...colStyle,
             position: 'absolute',
-            ...(g.leftX !== undefined ? { left: g.leftX } : { right: ICON_COL_W }),
+            ...(g.leftX !== undefined ? { insetInlineStart: g.leftX } : { insetInlineEnd: ICON_COL_W }),
             top: g.top + 1,
             pointerEvents: 'auto'
           }}
@@ -118,7 +121,7 @@ export function MemoQuoteIcons({
               color: 'var(--quote-icon-color)',
               position: 'relative'
             }}
-            title={`${g.items.length} quote${g.items.length > 1 ? 's' : ''}`}
+            title={t('viewer.quoteCount', { count: g.items.length })}
             onMouseEnter={() => {
               if (g.items.length === 1) {
                 const it = g.items[0]
@@ -159,7 +162,7 @@ export function MemoQuoteIcons({
           quote sits at the same Y so they stack side-by-side. */}
       {memoGroups.map((g, i) => {
         const firstItem = g.items[0]
-        const titles = g.items.map((it) => it.title || 'Selection Memo').join(', ')
+        const titles = g.items.map((it) => it.title || t('viewer.selectionMemo')).join(', ')
         const isRanged = !!firstItem.isRanged
         return (
           <div
@@ -167,7 +170,7 @@ export function MemoQuoteIcons({
             style={{
               ...colStyle,
               position: 'absolute',
-              ...(g.leftX !== undefined ? { left: g.leftX } : { right: 0 }),
+              ...(g.leftX !== undefined ? { insetInlineStart: g.leftX } : { insetInlineEnd: 0 }),
               top: g.top + 1,
               pointerEvents: 'auto'
             }}

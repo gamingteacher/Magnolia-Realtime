@@ -15,12 +15,31 @@ import {
   resolveFilteredSources,
   countCodeInSource,
   codeFrequencyInSource,
+  sizeEstimated,
+  isAverageColumn,
   countCoOccurrences,
-  binarizeGrid
+  binarizeGrid,
+  columnData,
+  columnScopedData,
+  codeRowTotal,
+  resultsInColumn,
+  resultRowTotal
 } from './analysis-helpers'
 import { buildSurveyAwareColumns, type AnalysisColumn } from './survey-grouping'
 import { buildDisplayRows, fullLabel, summaryKey } from './framework-matrix-model'
 import { buildExportSvg } from './RelationshipMap/svg-export'
+import {
+  metricColumns,
+  metricValue,
+  formatMetric,
+  metricLabel,
+  headerGroups,
+  alphaChange,
+  formatChange,
+  tableRows,
+  settingsRows,
+  type IntercoderSnapshot
+} from './intercoder/intercoder-tables'
 import { countWords, sourceTexts, codedPassageTexts, queryPassageTexts, codeSet, wordFilter, countPhrases, wordAssociations } from './word-counts'
 import { runQueries, allResults } from './word-sources'
 import { combinationsPassages, defaultCombinationsConfig, effectiveFocus, phraseLengthOf } from './WordCombinations'
@@ -34,26 +53,27 @@ import { TOOL_REGISTRY } from '../../utils/tool-registry'
 import { useProjectStore } from '../../stores/project-store'
 import type { AnalysisInitData, QueryResult } from '../../models/types'
 import type { AnalysisItemOptions, ReportItem } from './report-export'
+import { t, formatPercent, formatFixed, formatNumber } from '../../i18n'
 
 /** CSS for the report's regenerated analysis tables, appended to the
  *  export document's styles. */
 export const REPORT_TABLE_CSS = `
   table.report-table { width: auto; border-collapse: collapse; font-size: 10px; margin: 2px 0 6px 0; }
   table.report-table th, table.report-table td { border: 1px solid #ddd; padding: 3px 6px; text-align: center; white-space: nowrap; }
-  table.report-table th.rowhead, table.report-table td.rowhead { text-align: left; font-weight: 600; }
+  table.report-table th.rowhead, table.report-table td.rowhead { text-align: start; font-weight: 600; }
   table.report-table th { background: #f3f4f6; color: #555; font-size: 9px; font-weight: 600; }
   table.report-table td.zero { color: #bbb; }
   .report-note { font-size: 10px; color: #555; margin: 2px 0 4px 0; }
-  table.report-co td.co-seq { text-align: left; white-space: normal; line-height: 1.8; }
+  table.report-co td.co-seq { text-align: start; white-space: normal; line-height: 1.8; }
   .co-chip { display: inline-block; white-space: nowrap; }
-  .co-chip .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 3px; vertical-align: middle; }
+  .co-chip .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-inline-end: 3px; vertical-align: middle; }
   .co-arrow { color: #aaa; margin: 0 5px; }
   /* Grid tables, matching the on-screen Codes-in-Documents / Results-in-
      Documents / Co-Occurrences look: rotated headers, fixed 50x32 cells,
      subtotal / band tints, and (in Visual mode) sized colour boxes. */
   table.report-grid { border-collapse: collapse; font-size: 10px; margin: 4px 0 12px 0; }
   table.report-grid th, table.report-grid td { border: 1px solid #dde2e8; }
-  table.report-grid th.corner { text-align: left; vertical-align: bottom; padding: 5px 8px; font-weight: 700; color: #444; font-size: 10px; background: #f4f6f8; }
+  table.report-grid th.corner { text-align: start; vertical-align: bottom; padding: 5px 8px; font-weight: 700; color: #444; font-size: 10px; background: #f4f6f8; }
   table.report-grid th.col { width: 30px; min-width: 30px; max-width: 30px; vertical-align: bottom; padding: 6px 0 5px; background: #f4f6f8; }
   /* Vertical headers (read bottom-to-top) keep long document / respondent
      names from overflowing the way the on-screen diagonal labels would in
@@ -65,20 +85,20 @@ export const REPORT_TABLE_CSS = `
   table.report-grid th.col.totalhead { background: #e9edf2; }
   table.report-grid th.col.totalhead .vlabel { font-weight: 700; color: #2a3340; }
   table.report-grid th.band-label { text-align: center; font-size: 9px; font-weight: 700; color: #3a4a60; background: #eef2f6; padding: 3px 4px; white-space: nowrap; overflow: hidden; }
-  table.report-grid td.rowname { text-align: left; font-weight: 600; padding: 4px 8px; max-width: 190px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #222; }
+  table.report-grid td.rowname { text-align: start; font-weight: 600; padding: 4px 8px; max-width: 190px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #222; }
   table.report-grid td.cell { width: 30px; height: 26px; padding: 0; text-align: center; color: #333; }
   table.report-grid td.cell.sub { background: #eef1f6; font-weight: 700; }
   table.report-grid td.cell.band { background: #f6f8fb; }
   table.report-grid td.cell.zero { color: #c8cdd4; }
-  table.report-grid td.totalcell { min-width: 32px; height: 26px; padding: 0 6px; text-align: center; vertical-align: middle; font-weight: 700; border-left: 2px solid #c4ccd6; color: #222; }
+  table.report-grid td.totalcell { min-width: 32px; height: 26px; padding: 0 6px; text-align: center; vertical-align: middle; font-weight: 700; border-inline-start: 2px solid #c4ccd6; color: #222; }
   table.report-grid td.pctcell { min-width: 42px; height: 26px; padding: 0 6px; text-align: center; vertical-align: middle; font-style: italic; font-size: 9px; color: #6a7b90; background: #f7f9fb; }
   table.report-grid tr.total td { border-top: 2px solid #aab4c0; font-weight: 700; background: #eef1f5; }
   .cw { height: 26px; display: flex; align-items: center; justify-content: center; }
   /* Framework Matrix: wrapped free-text cells across the page width. */
   table.report-summary { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 9.5px; margin: 4px 0 12px 0; }
-  table.report-summary th, table.report-summary td { border: 1px solid #dde2e8; padding: 4px 6px; text-align: left; vertical-align: top; white-space: pre-wrap; overflow-wrap: anywhere; }
+  table.report-summary th, table.report-summary td { border: 1px solid #dde2e8; padding: 4px 6px; text-align: start; vertical-align: top; white-space: pre-wrap; overflow-wrap: anywhere; }
   table.report-summary th { background: #f4f6f8; color: #444; font-weight: 700; }
-  table.report-summary th .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+  table.report-summary th .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-inline-end: 4px; vertical-align: middle; }
   table.report-summary td.rowname { font-weight: 600; color: #222; }
   table.report-summary tr.group td { background: #f3f5f8; }
   table.report-summary tr.group td.rowname { font-weight: 700; }
@@ -91,7 +111,7 @@ export const REPORT_TABLE_CSS = `
 
 function pctOf(value: number, total: number): string {
   if (!total) return ''
-  return ((value / total) * 100).toFixed(1) + '%'
+  return formatPercent((value / total) * 100)
 }
 
 function trunc(s: string, n: number): string {
@@ -126,10 +146,15 @@ function renderGridTableHtml(
   headerGroups: { label: string | null; span: number }[],
   grid: number[][],
   opts: { binary: boolean; visual: boolean; totalsOnly: boolean },
-  rowDepths?: number[]
+  rowDepths?: number[],
+  /** Counts mode: each row's total with every item counted once (see
+   *  codeRowTotal / resultRowTotal). Binary sums the columns' 0s and 1s. */
+  distinctRowTotals?: number[]
 ): string {
   const { binary, visual, totalsOnly } = opts
-  const rowTotals = grid.map((row) => row.reduce((s, v, j) => (columns[j].isSubtotal ? s : s + v), 0))
+  const rowTotals = !binary && distinctRowTotals
+    ? distinctRowTotals
+    : grid.map((row) => row.reduce((s, v, j) => (columns[j].isSubtotal ? s : s + v), 0))
   const colTotals = columns.map((_, j) => grid.reduce((s, row) => s + row[j], 0))
   const grandTotal = rowTotals.reduce((a, b) => a + b, 0)
   let maxVal = 1
@@ -175,7 +200,7 @@ function renderGridTableHtml(
       return th + pctTh
     })
     .join('')
-  const headerRow = `<tr><th class="corner">${escHtml(rowLabel)}</th>${headCells}<th class="col totalhead"><div class="vlabel">Total</div></th><th class="col totalhead"><div class="vlabel">% of Total</div></th></tr>`
+  const headerRow = `<tr><th class="corner">${escHtml(rowLabel)}</th>${headCells}<th class="col totalhead"><div class="vlabel">${escHtml(t('analysis.total'))}</div></th><th class="col totalhead"><div class="vlabel">${escHtml(t('analysis.pctOfTotal'))}</div></th></tr>`
 
   // Body rows — Visual mode draws a sized box; Numeric shows the count.
   const body = rowNames
@@ -184,44 +209,28 @@ function renderGridTableHtml(
         .map((j) => {
           const v = grid[i][j]
           const zero = v === 0 && !columns[j].isSubtotal
-          const inner = visual ? visualBox(v, maxVal) : String(v)
+          const inner = visual ? visualBox(v, maxVal) : formatNumber(v)
           const cell = `<td class="cell${colCls(j)}${zero ? ' zero' : ''}"><div class="cw">${inner}</div></td>`
           const pctCell = columns[j].isSubtotal ? `<td class="pctcell">${binary ? '–' : pctOf(v, rowTotals[i]) || '–'}</td>` : ''
           return cell + pctCell
         })
         .join('')
-      return `<tr><td class="rowname">${codeIndent(rowDepths?.[i])}${escHtml(name)}</td>${cells}<td class="totalcell">${rowTotals[i]}</td><td class="pctcell">${pctOf(rowTotals[i], grandTotal) || '–'}</td></tr>`
+      return `<tr><td class="rowname">${codeIndent(rowDepths?.[i])}${escHtml(name)}</td>${cells}<td class="totalcell">${formatNumber(rowTotals[i])}</td><td class="pctcell">${pctOf(rowTotals[i], grandTotal) || '–'}</td></tr>`
     })
     .join('')
 
   // Total row is always numeric (the on-screen margins never become boxes).
   const totalCells = visIdx
     .map((j) => {
-      const cell = `<td class="cell${colCls(j)}"><div class="cw">${colTotals[j]}</div></td>`
+      const cell = `<td class="cell${colCls(j)}"><div class="cw">${formatNumber(colTotals[j])}</div></td>`
       const pctCell = columns[j].isSubtotal ? `<td class="pctcell">${binary ? '–' : pctOf(colTotals[j], grandTotal) || '–'}</td>` : ''
       return cell + pctCell
     })
     .join('')
-  const totalRow = `<tr class="total"><td class="rowname">Total</td>${totalCells}<td class="totalcell">${grandTotal}</td><td class="pctcell">${grandTotal ? '100.0%' : '–'}</td></tr>`
+  const totalRow = `<tr class="total"><td class="rowname">${escHtml(t('analysis.total'))}</td>${totalCells}<td class="totalcell">${formatNumber(grandTotal)}</td><td class="pctcell">${grandTotal ? formatPercent(100) : '–'}</td></tr>`
 
   const wide = visIdx.length > 12
   return `<div class="report-wide${wide ? ' report-wide-rotate' : ''}"><table class="report-grid">${groupedRow}${headerRow}${body}${totalRow}</table></div>`
-}
-
-/** Per-column survey-cell scope, exactly as the grid tools do it. */
-function buildColData(columns: AnalysisColumn[], data: AnalysisInitData): Map<string, AnalysisInitData> {
-  const colData = new Map<string, AnalysisInitData>()
-  for (const col of columns) {
-    colData.set(
-      col.id,
-      col.respondentRef
-        ? applySurveyCellScope(data, { respondentScope: [col.respondentRef] })
-        : col.tagScopeGuids
-          ? applySurveyCellScope(data, { tagGuids: col.tagScopeGuids })
-          : data
-    )
-  }
-  return colData
 }
 
 function scopedData(toolType: AnalysisInitData['toolType'], config: any): { data: AnalysisInitData; docFilter: any } {
@@ -264,13 +273,13 @@ function codeIndent(depth?: number): string {
 
 function codesInDocumentsHtml(config: any, options: AnalysisItemOptions): string {
   const codeGuids: string[] = config?.codeGuids ?? []
-  if (codeGuids.length === 0) return '<div class="empty">(no codes in this analysis)</div>'
+  if (codeGuids.length === 0) return `<div class="empty">${escHtml(t('reports.noCodes'))}</div>`
   const { data, docFilter } = scopedData('codes-in-documents', config)
   const filtered = resolveFilteredSources(data, docFilter.sourceGuids ?? [], docFilter.tagGuids ?? [], docFilter.tagExcludeGuids ?? [], docFilter.typeInclude ?? [], docFilter.typeExclude ?? [])
   const sourceMap = new Map<string, string>(data.sources.map((s) => [s.guid, s.name]))
   const codeMap = new Map(data.codes.map((c) => [c.guid, c]))
   const { columns, headerGroups } = buildSurveyAwareColumns(config?.groupBy ?? [], data, filtered, sourceMap)
-  const colData = buildColData(columns, data)
+  const colData = columnScopedData(columns, data)
   let grid = codeGuids.map((cg) =>
     columns.map((col) => {
       const cd = colData.get(col.id) || data
@@ -278,16 +287,17 @@ function codesInDocumentsHtml(config: any, options: AnalysisItemOptions): string
     })
   )
   if (options.binary) grid = binarizeGrid(grid)
-  const names = codeGuids.map((cg) => codeMap.get(cg)?.name ?? 'Code')
+  const names = codeGuids.map((cg) => codeMap.get(cg)?.name ?? t('analysis.code'))
   const depths = codeRowDepths(codeGuids, codeMap)
-  return renderGridTableHtml('Code', names, columns, headerGroups, grid, { binary: !!options.binary, visual: !!options.visual, totalsOnly: !!options.totalsOnly }, depths)
+  const totals = codeGuids.map((cg) => codeRowTotal(columns, colData, data, cg))
+  return renderGridTableHtml(t('analysis.code'), names, columns, headerGroups, grid, { binary: !!options.binary, visual: !!options.visual, totalsOnly: !!options.totalsOnly }, depths, totals)
 }
 
 // ── Results in Documents ───────────────────────────────────────────
 
 function resultsInDocumentsHtml(config: any, options: AnalysisItemOptions): string {
   const queryGuids: string[] = config?.queryGuids ?? []
-  if (queryGuids.length === 0) return '<div class="empty">(no queries in this analysis)</div>'
+  if (queryGuids.length === 0) return `<div class="empty">${escHtml(t('reports.noQueries'))}</div>`
 
   const data = buildAnalysisInitData('results-in-documents')
 
@@ -306,31 +316,25 @@ function resultsInDocumentsHtml(config: any, options: AnalysisItemOptions): stri
 
   let grid = queryGuids.map((qGuid) => {
     const results = queryResults.get(qGuid) || []
-    return columns.map((col) => {
-      if (col.respondentRef) {
-        const { sourceGuid, id } = col.respondentRef
-        return results.filter((r) => r.sourceGuid === sourceGuid && r.surveyCell?.respondentId === id).length
-      }
-      const colGuids = new Set(col.sourceGuids)
-      return results.filter((r) => colGuids.has(r.sourceGuid)).length
-    })
+    return columns.map((col) => resultsInColumn(results, col, data).length)
   })
   if (options.binary) grid = binarizeGrid(grid)
-  const names = queryGuids.map((g) => queryMap.get(g)?.name ?? 'Query')
-  return renderGridTableHtml('Query', names, columns, headerGroups, grid, { binary: !!options.binary, visual: !!options.visual, totalsOnly: !!options.totalsOnly })
+  const names = queryGuids.map((g) => queryMap.get(g)?.name ?? t('analysis.query'))
+  const totals = queryGuids.map((g) => resultRowTotal(queryResults.get(g) || [], columns, data))
+  return renderGridTableHtml(t('analysis.query'), names, columns, headerGroups, grid, { binary: !!options.binary, visual: !!options.visual, totalsOnly: !!options.totalsOnly }, undefined, totals)
 }
 
 // ── Code Frequencies (percentage grid, no totals/subtotals) ─────────
 
 function codeFrequenciesHtml(config: any, options: AnalysisItemOptions): string {
   const codeGuids: string[] = config?.codeGuids ?? []
-  if (codeGuids.length === 0) return '<div class="empty">(no codes in this analysis)</div>'
+  if (codeGuids.length === 0) return `<div class="empty">${escHtml(t('reports.noCodes'))}</div>`
   const { data, docFilter } = scopedData('code-frequencies', config)
   const filtered = resolveFilteredSources(data, docFilter.sourceGuids ?? [], docFilter.tagGuids ?? [], docFilter.tagExcludeGuids ?? [], docFilter.typeInclude ?? [], docFilter.typeExclude ?? [])
   const sourceMap = new Map<string, string>(data.sources.map((s) => [s.guid, s.name]))
   const codeMap = new Map(data.codes.map((c) => [c.guid, c]))
   const { columns } = buildSurveyAwareColumns(config?.groupBy ?? [], data, filtered, sourceMap, { includeSubtotals: false })
-  const colData = buildColData(columns, data)
+  const colData = columnScopedData(columns, data)
   const grid = codeGuids.map((cg) =>
     columns.map((col) => {
       if (col.sourceGuids.length === 0) return 0
@@ -340,19 +344,22 @@ function codeFrequenciesHtml(config: any, options: AnalysisItemOptions): string 
     })
   )
   const depths = codeRowDepths(codeGuids, codeMap)
-  const thead = `<tr><th class="rowhead">Code</th>${columns.map((c) => `<th>${escHtml(c.label)}</th>`).join('')}</tr>`
+  // A column of several documents shows their average, and says so.
+  const thead = `<tr><th class="rowhead">${escHtml(t('analysis.code'))}</th>${columns.map((c) => `<th>${escHtml(isAverageColumn(c) ? t('codeFreq.averageLabel', { label: c.label }) : c.label)}</th>`).join('')}</tr>`
   const body = codeGuids
     .map((cg, i) => {
       const cells = columns
         .map((_, j) => {
           const v = grid[i][j]
-          return `<td class="${v === 0 ? 'zero' : ''}">${v.toFixed(1)}%</td>`
+          return `<td class="${v === 0 ? 'zero' : ''}">${formatPercent(v)}</td>`
         })
         .join('')
-      return `<tr><td class="rowhead">${codeIndent(depths[i])}${escHtml(codeMap.get(cg)?.name ?? 'Code')}</td>${cells}</tr>`
+      return `<tr><td class="rowhead">${codeIndent(depths[i])}${escHtml(codeMap.get(cg)?.name ?? t('analysis.code'))}</td>${cells}</tr>`
     })
     .join('')
-  return wrapTable(`<thead>${thead}</thead><tbody>${body}</tbody>`, columns.length)
+  const estimated = filtered.filter((g) => sizeEstimated(data, g)).map((g) => sourceMap.get(g) ?? '')
+  const note = estimated.length ? `<p class="report-note">${escHtml(t('codeFreq.estimatedNote', { names: estimated.join(', ') }))}</p>` : ''
+  return wrapTable(`<thead>${thead}</thead><tbody>${body}</tbody>`, columns.length) + note
 }
 
 // ── Code Co-Occurrences ────────────────────────────────────────────
@@ -360,7 +367,7 @@ function codeFrequenciesHtml(config: any, options: AnalysisItemOptions): string 
 function codeCoOccurrencesHtml(config: any, options: AnalysisItemOptions): string {
   const rowCodeGuids: string[] = config?.rowCodeGuids ?? []
   const colCodeGuids: string[] = config?.colCodeGuids ?? []
-  if (rowCodeGuids.length === 0 || colCodeGuids.length === 0) return '<div class="empty">(no codes in this analysis)</div>'
+  if (rowCodeGuids.length === 0 || colCodeGuids.length === 0) return `<div class="empty">${escHtml(t('reports.noCodes'))}</div>`
   const { data, docFilter } = scopedData('code-cooccurrences', config)
   const filtered = resolveFilteredSources(data, docFilter.sourceGuids ?? [], docFilter.tagGuids ?? [], docFilter.tagExcludeGuids ?? [], docFilter.typeInclude ?? [], docFilter.typeExclude ?? [])
   const codeMap = new Map(data.codes.map((c) => [c.guid, c]))
@@ -381,28 +388,28 @@ function codeCoOccurrencesHtml(config: any, options: AnalysisItemOptions): strin
   const rowDepths = codeRowDepths(rowCodeGuids, codeMap)
   const colHead = totalsOnly
     ? ''
-    : colCodeGuids.map((g) => `<th class="col"><div class="vlabel">${escHtml(trunc(codeMap.get(g)?.name ?? 'Code', 26))}</div></th>`).join('')
-  const headerRow = `<tr><th class="corner"></th>${colHead}<th class="col totalhead"><div class="vlabel">Total</div></th><th class="col totalhead"><div class="vlabel">% of Total</div></th></tr>`
+    : colCodeGuids.map((g) => `<th class="col"><div class="vlabel">${escHtml(trunc(codeMap.get(g)?.name ?? t('analysis.code'), 26))}</div></th>`).join('')
+  const headerRow = `<tr><th class="corner"></th>${colHead}<th class="col totalhead"><div class="vlabel">${escHtml(t('analysis.total'))}</div></th><th class="col totalhead"><div class="vlabel">${escHtml(t('analysis.pctOfTotal'))}</div></th></tr>`
 
   const body = rowCodeGuids
     .map((rg, i) => {
-      const name = codeMap.get(rg)?.name ?? 'Code'
+      const name = codeMap.get(rg)?.name ?? t('analysis.code')
       const cells = totalsOnly
         ? ''
         : colCodeGuids
             .map((cg, j) => {
               if (rg === cg) return '<td class="cell zero"><div class="cw">—</div></td>'
               const v = matrix[i][j]
-              const inner = visual ? visualBox(v, maxVal) : String(v)
+              const inner = visual ? visualBox(v, maxVal) : formatNumber(v)
               return `<td class="cell${v === 0 ? ' zero' : ''}"><div class="cw">${inner}</div></td>`
             })
             .join('')
-      return `<tr><td class="rowname">${codeIndent(rowDepths[i])}<span style="display:inline-flex;align-items:center;gap:4px">${dot(codeMap.get(rg)?.color)}${escHtml(name)}</span></td>${cells}<td class="totalcell">${rowTotals[i]}</td><td class="pctcell">${pctOf(rowTotals[i], grandTotal) || '–'}</td></tr>`
+      return `<tr><td class="rowname">${codeIndent(rowDepths[i])}<span style="display:inline-flex;align-items:center;gap:4px">${dot(codeMap.get(rg)?.color)}${escHtml(name)}</span></td>${cells}<td class="totalcell">${formatNumber(rowTotals[i])}</td><td class="pctcell">${pctOf(rowTotals[i], grandTotal) || '–'}</td></tr>`
     })
     .join('')
 
-  const totalCells = totalsOnly ? '' : colTotals.map((ct) => `<td class="cell"><div class="cw">${ct}</div></td>`).join('')
-  const totalRow = `<tr class="total"><td class="rowname">Total</td>${totalCells}<td class="totalcell">${grandTotal}</td><td class="pctcell">${grandTotal ? '100.0%' : '–'}</td></tr>`
+  const totalCells = totalsOnly ? '' : colTotals.map((ct) => `<td class="cell"><div class="cw">${formatNumber(ct)}</div></td>`).join('')
+  const totalRow = `<tr class="total"><td class="rowname">${escHtml(t('analysis.total'))}</td>${totalCells}<td class="totalcell">${formatNumber(grandTotal)}</td><td class="pctcell">${grandTotal ? formatPercent(100) : '–'}</td></tr>`
 
   const wide = (totalsOnly ? 0 : colCodeGuids.length) > 12
   return `<div class="report-wide${wide ? ' report-wide-rotate' : ''}"><table class="report-grid">${headerRow}${body}${totalRow}</table></div>`
@@ -420,17 +427,34 @@ function orderedCodeChips(
   for (const sg of sourceGuids) {
     const sels = d.sourceSelections[sg] || []
     const local: { start: number; name: string; color: string }[] = []
+    // A survey's codings are cell-relative: order them by their cell's
+    // place among the codable cells first, as the tool does.
+    const cellBase = new Map<string, number>()
+    let at = 0
+    for (const c of d.surveyCodableCells?.[sg] || []) {
+      cellBase.set(c.respondentId + ' ' + c.questionId, at)
+      at += Array.from(c.text).length
+    }
     for (const sel of sels) {
+      // As in the tool: a coding with no place in the text (a region, or a
+      // video coding with no transcript span) can't be put in order.
+      if (sel.pdfRegion || sel.endPosition <= sel.startPosition) continue
+      let base = 0
+      if (sel.surveyCell) {
+        const b = cellBase.get(sel.surveyCell.respondentId + ' ' + sel.surveyCell.questionId)
+        if (b === undefined) continue
+        base = b
+      }
       for (const coding of sel.codings) {
         if (!codeGuids.includes(coding.codeGuid)) continue
         const info = codeMap.get(coding.codeGuid)
-        local.push({ start: sel.startPosition, name: info?.name || 'Code', color: info?.color || '#888' })
+        local.push({ start: base + sel.startPosition, name: info?.name || t('analysis.code'), color: info?.color || '#888' })
       }
     }
     local.sort((a, b) => a.start - b.start)
     for (const l of local) seq.push({ name: l.name, color: l.color })
   }
-  if (seq.length === 0) return '<span class="empty">(no codes)</span>'
+  if (seq.length === 0) return `<span class="empty">${escHtml(t('reports.noCodesShort'))}</span>`
   return seq
     .map((s) => `<span class="co-chip"><span class="dot" style="background:${s.color}"></span>${escHtml(s.name)}</span>`)
     .join('<span class="co-arrow">→</span>')
@@ -438,13 +462,13 @@ function orderedCodeChips(
 
 function codeOrdersHtml(config: any, _options: AnalysisItemOptions): string {
   const codeGuids: string[] = config?.codeGuids ?? []
-  if (codeGuids.length === 0) return '<div class="empty">(no codes in this analysis)</div>'
+  if (codeGuids.length === 0) return `<div class="empty">${escHtml(t('reports.noCodes'))}</div>`
   const { data, docFilter } = scopedData('code-orders', config)
   const filtered = resolveFilteredSources(data, docFilter.sourceGuids ?? [], docFilter.tagGuids ?? [], docFilter.tagExcludeGuids ?? [], docFilter.typeInclude ?? [], docFilter.typeExclude ?? [])
   const sourceMap = new Map<string, string>(data.sources.map((s) => [s.guid, s.name]))
   const codeMap = new Map(data.codes.map((c) => [c.guid, { name: c.name, color: c.color }]))
   const { columns: rows } = buildSurveyAwareColumns(config?.groupBy ?? [], data, filtered, sourceMap, { includeSubtotals: false })
-  if (rows.length === 0) return '<div class="empty">(no documents in scope)</div>'
+  if (rows.length === 0) return `<div class="empty">${escHtml(t('reports.noDocuments'))}</div>`
   const body = rows
     .map((row) => {
       const rd = row.respondentRef
@@ -555,7 +579,7 @@ function wordBarChartSvg(words: [string, number][], series: WordSeries[], series
     const y = xAxisY - (value / yMax) * barMaxH
     parts.push(`<line x1="${plotLeft - 4}" y1="${y}" x2="${plotLeft}" y2="${y}" stroke="${WF_BORDER}"/>`)
     parts.push(`<line x1="${plotLeft}" y1="${y}" x2="${plotRight}" y2="${y}" stroke="${WF_BORDER}" opacity="0.15"/>`)
-    parts.push(`<text x="${plotLeft - 7}" y="${(y + labelFontSize * 0.35).toFixed(1)}" text-anchor="end" font-size="${labelFontSize}" fill="${WF_TEXT}">${value}</text>`)
+    parts.push(`<text x="${plotLeft - 7}" y="${(y + labelFontSize * 0.35).toFixed(1)}" text-anchor="end" font-size="${labelFontSize}" fill="${WF_TEXT}">${formatNumber(value)}</text>`)
   }
   words.forEach(([word], wi) => {
     const groupX = plotLeft + plotPad + wi * step
@@ -596,7 +620,7 @@ function wordFrequenciesHtml(config: any, options: AnalysisItemOptions): string 
     // query's results once.
     series = [...queryRuns].map(([g, run]) => ({ id: g, label: run.name, sourceGuids: [], queryGuid: g }))
     total = countWords(queryPassageTexts(data, allResults(queryRuns)).passages.map((p) => p.text), filter)
-    if (series.length === 0) return '<div class="empty">(no queries in this analysis)</div>'
+    if (series.length === 0) return `<div class="empty">${escHtml(t('reports.noQueries'))}</div>`
   } else if (config?.textSource === 'coded') {
     // One series per code still in the project; the total counts every
     // chosen code's passages once.
@@ -608,11 +632,11 @@ function wordFrequenciesHtml(config: any, options: AnalysisItemOptions): string 
     const all = new Set<string>()
     for (const set of codeSets.values()) for (const g of set) all.add(g)
     total = countWords(codedPassageTexts(data, filtered, all).passages.map((p) => p.text), filter)
-    if (series.length === 0) return '<div class="empty">(no codes in this analysis)</div>'
+    if (series.length === 0) return `<div class="empty">${escHtml(t('reports.noCodes'))}</div>`
   } else {
     series =
       groupBy.length === 0
-        ? [{ id: '__all', label: 'All', sourceGuids: filtered }]
+        ? [{ id: '__all', label: t('words.all'), sourceGuids: filtered }]
         : buildSurveyAwareColumns(groupBy, data, filtered, sourceMap, { includeSubtotals: true }).columns
     // Counted once over the filtered sources, as on screen: summing the
     // series would count subtotals and multiply-tagged documents twice.
@@ -621,21 +645,21 @@ function wordFrequenciesHtml(config: any, options: AnalysisItemOptions): string 
   const seriesFreqs = series.map((s) => {
     if (s.codeGuid) return countWords(codedPassageTexts(data, s.sourceGuids, codeSets.get(s.codeGuid)!).passages.map((p) => p.text), filter)
     if (s.queryGuid) return countWords(queryPassageTexts(data, queryRuns.get(s.queryGuid)!.results).passages.map((p) => p.text), filter)
-    const sd = s.respondentRef ? applySurveyCellScope(data, { respondentScope: [s.respondentRef] }) : data
+    const sd = columnData(s, data)
     return countWords(s.sourceGuids.flatMap((g) => sourceTexts(sd, g)), filter)
   })
   const ranked = Array.from(total.entries()).sort((a, b) => b[1] - a[1]).slice(0, wordCount)
-  if (ranked.length === 0) return '<div class="empty">(no words)</div>'
+  if (ranked.length === 0) return `<div class="empty">${escHtml(t('reports.noWords'))}</div>`
 
   const single = series.length === 1
   const thead = single
-    ? `<tr><th class="rowhead">Word</th><th>Frequency</th></tr>`
-    : `<tr><th class="rowhead">Word</th>${series.map((s) => `<th>${escHtml(s.label)}</th>`).join('')}<th>Total</th></tr>`
+    ? `<tr><th class="rowhead">${escHtml(t('words.word'))}</th><th>${escHtml(t('words.frequency'))}</th></tr>`
+    : `<tr><th class="rowhead">${escHtml(t('words.word'))}</th>${series.map((s) => `<th>${escHtml(s.label)}</th>`).join('')}<th>${escHtml(t('analysis.total'))}</th></tr>`
   const body = ranked
     .map(([w, tot]) => {
-      if (single) return `<tr><td class="rowhead">${escHtml(w)}</td><td>${tot}</td></tr>`
-      const cells = series.map((_, j) => { const c = seriesFreqs[j].get(w) || 0; return `<td class="${c === 0 ? 'zero' : ''}">${c}</td>` }).join('')
-      return `<tr><td class="rowhead">${escHtml(w)}</td>${cells}<td>${tot}</td></tr>`
+      if (single) return `<tr><td class="rowhead">${escHtml(w)}</td><td>${formatNumber(tot)}</td></tr>`
+      const cells = series.map((_, j) => { const c = seriesFreqs[j].get(w) || 0; return `<td class="${c === 0 ? 'zero' : ''}">${formatNumber(c)}</td>` }).join('')
+      return `<tr><td class="rowhead">${escHtml(w)}</td>${cells}<td>${formatNumber(tot)}</td></tr>`
     })
     .join('')
   const table = wrapTable(`<thead>${thead}</thead><tbody>${body}</tbody>`, single ? 1 : series.length)
@@ -660,18 +684,18 @@ function wordCombinationsHtml(config: any): string {
   const known = new Set(data.codes.map((c) => c.guid))
   const codeSets = new Map<string, Set<string>>()
   for (const g of cfg.codeGuids as string[]) if (known.has(g)) codeSets.set(g, codeSet(data.codes, g, cfg.includeSubcodes))
-  if (cfg.textSource === 'coded' && codeSets.size === 0) return '<div class="empty">(no codes in this analysis)</div>'
+  if (cfg.textSource === 'coded' && codeSets.size === 0) return `<div class="empty">${escHtml(t('reports.noCodes'))}</div>`
   const queryRuns = runQueries(cfg.textSource === 'query' ? cfg.queryGuids : [])
-  if (cfg.textSource === 'query' && queryRuns.size === 0) return '<div class="empty">(no queries in this analysis)</div>'
+  if (cfg.textSource === 'query' && queryRuns.size === 0) return `<div class="empty">${escHtml(t('reports.noQueries'))}</div>`
   const { passages } = combinationsPassages(data, filtered, cfg.textSource, codeSets, queryRuns)
   const texts = passages.map((p) => p.text)
   const filter = wordFilter(cfg.includeWords, cfg.excludeWords)
 
   if (cfg.view === 'tree') {
     const focus = effectiveFocus(cfg.focusWord, passages, filter)
-    if (!focus) return '<div class="empty">(no words)</div>'
+    if (!focus) return `<div class="empty">${escHtml(t('reports.noWords'))}</div>`
     const tree = buildWordTree(passages, focus)
-    const intro = `<div class="report-note">\u201C${escHtml(focus)}\u201D appears ${tree.count} time${tree.count === 1 ? '' : 's'}.</div>`
+    const intro = `<div class="report-note">${escHtml(t('combos.appearsTimes', { word: focus, count: tree.count }))}.</div>`
     if (tree.count === 0) return intro
     return intro + `<div class="report-wf-viz">${wordTreeSvg(layoutWordTree(tree), {
       text: WF_TEXT,
@@ -681,24 +705,24 @@ function wordCombinationsHtml(config: any): string {
 
   if (cfg.view === 'associations') {
     const focus = effectiveFocus(cfg.focusWord, passages, filter)
-    if (!focus) return '<div class="empty">(no words)</div>'
+    if (!focus) return `<div class="empty">${escHtml(t('reports.noWords'))}</div>`
     const result = wordAssociations(texts, focus, filter, Math.max(1, cfg.minTogether))
-    const intro = `<div class="report-note">\u201C${escHtml(focus)}\u201D appears in ${result.focusSentences} of ${result.sentences} sentences.</div>`
-    if (result.rows.length === 0) return intro + '<div class="empty">(no associated words)</div>'
+    const intro = `<div class="report-note">${escHtml(t('combos.appearsInSentences', { word: focus, n: result.focusSentences, count: result.sentences }))}.</div>`
+    if (result.rows.length === 0) return intro + `<div class="empty">${escHtml(t('reports.noAssociated'))}</div>`
     const body = result.rows
       .slice(0, COMBINATION_ROWS)
-      .map((r) => `<tr><td class="rowhead">${escHtml(r.word)}</td><td>${r.together}</td><td>${(r.share * 100).toFixed(1)}%</td><td>${r.g2.toFixed(1)}</td></tr>`)
+      .map((r) => `<tr><td class="rowhead">${escHtml(r.word)}</td><td>${formatNumber(r.together)}</td><td>${formatPercent(r.share * 100)}</td><td>${formatFixed(r.g2, 1)}</td></tr>`)
       .join('')
-    return intro + wrapTable(`<thead><tr><th class="rowhead">Word</th><th>Together</th><th>% of Sentences</th><th>G\u00B2</th></tr></thead><tbody>${body}</tbody>`, 3)
+    return intro + wrapTable(`<thead><tr><th class="rowhead">${escHtml(t('words.word'))}</th><th>${escHtml(t('combos.together'))}</th><th>${escHtml(t('combos.pctOfSentences'))}</th><th>G\u00B2</th></tr></thead><tbody>${body}</tbody>`, 3)
   }
 
   const phrases = countPhrases(texts, phraseLengthOf(cfg.phraseLength), filter, Math.max(1, cfg.minCount))
-  if (phrases.length === 0) return '<div class="empty">(no repeated phrases)</div>'
+  if (phrases.length === 0) return `<div class="empty">${escHtml(t('reports.noRepeated'))}</div>`
   if (cfg.phraseDisplay === 'network') {
     const net = buildPhraseNetwork(phrases, filter.exclude)
-    if (net.links.length === 0) return '<div class="empty">(no phrases to join)</div>'
-    const shown = net.phraseCount === phrases.length ? `${phrases.length} phrase${phrases.length === 1 ? '' : 's'}` : `The ${net.phraseCount} commonest of ${phrases.length} phrases`
-    const intro = `<div class="report-note">${shown}. Lines join the words that follow each other in them; left-out words aren\u2019t drawn.</div>`
+    if (net.links.length === 0) return `<div class="empty">${escHtml(t('reports.noJoin'))}</div>`
+    const shown = net.phraseCount === phrases.length ? t('combos.phraseCount', { count: phrases.length }) : t('combos.commonestOf', { n: net.phraseCount, count: phrases.length })
+    const intro = `<div class="report-note">${escHtml(t('reports.networkNote', { shown }))}</div>`
     return intro + `<div class="report-wf-viz">${phraseNetworkSvg(layoutPhraseNetwork(net), {
       text: WF_TEXT,
       line: WF_BORDER,
@@ -708,9 +732,9 @@ function wordCombinationsHtml(config: any): string {
   }
   const body = phrases
     .slice(0, COMBINATION_ROWS)
-    .map((p) => `<tr><td class="rowhead">${escHtml(p.phrase)}</td><td>${p.count}</td></tr>`)
+    .map((p) => `<tr><td class="rowhead">${escHtml(p.phrase)}</td><td>${formatNumber(p.count)}</td></tr>`)
     .join('')
-  return wrapTable(`<thead><tr><th class="rowhead">Phrase</th><th>Count</th></tr></thead><tbody>${body}</tbody>`, 1)
+  return wrapTable(`<thead><tr><th class="rowhead">${escHtml(t('combos.phrase'))}</th><th>${escHtml(t('words.count'))}</th></tr></thead><tbody>${body}</tbody>`, 1)
 }
 
 // ── Framework Matrix (rows × codes of free-text summaries) ───────────
@@ -718,7 +742,7 @@ function wordCombinationsHtml(config: any): string {
 function summaryMatrixHtml(config: any): string {
   const codeGuids: string[] = config?.codeGuids ?? []
   const rowEntries = config?.rows ?? []
-  if (codeGuids.length === 0 || rowEntries.length === 0) return '<div class="empty">(no rows or codes in this analysis)</div>'
+  if (codeGuids.length === 0 || rowEntries.length === 0) return `<div class="empty">${escHtml(t('reports.noRowsOrCodes'))}</div>`
   const data = buildAnalysisInitData('framework-matrix')
   const summaries: Record<string, string> = config?.summaries ?? {}
   // Expand every group: the exported report should carry every summary,
@@ -728,17 +752,39 @@ function summaryMatrixHtml(config: any): string {
   const head = `<tr><th style="width:22%"></th>${codeGuids
     .map((cg) => {
       const c = codeMap.get(cg)
-      return `<th><span class="dot" style="background:${escHtml(c?.color || '#888')}"></span>${escHtml(c?.name ?? 'Deleted code')}</th>`
+      return `<th><span class="dot" style="background:${escHtml(c?.color || '#888')}"></span>${escHtml(c?.name ?? t('framework.deletedCode'))}</th>`
     })
     .join('')}</tr>`
   const body = rows
     .map((r) => {
       const cells = codeGuids.map((cg) => `<td>${escHtml(summaries[summaryKey(r.key, cg)] ?? '')}</td>`).join('')
       // Indent with padding (not a spacer) so wrapped labels stay indented.
-      return `<tr${r.isGroup ? ' class="group"' : ''}><td class="rowname${r.orphanOf ? ' orphan' : ''}" style="padding-left:${6 + r.depth * 14}px">${escHtml(fullLabel(r))}</td>${cells}</tr>`
+      return `<tr${r.isGroup ? ' class="group"' : ''}><td class="rowname${r.orphanOf ? ' orphan' : ''}" style="padding-inline-start:${6 + r.depth * 14}px">${escHtml(fullLabel(r))}</td>${cells}</tr>`
     })
     .join('')
   return `<table class="report-summary"><thead>${head}</thead><tbody>${body}</tbody></table>`
+}
+
+// ── Inter-coder Agreement (from the saved snapshot) ──────────────────
+
+/** The coders' files usually aren't part of this project, so the report
+ *  shows the results as they were when the analysis was last saved. */
+function intercoderHtml(config: any): string {
+  const snap = config?.snapshot as IntercoderSnapshot | undefined
+  if (!snap || snap.codes.length === 0) return `<div class="empty">${escHtml(t('intercoder.reportEmpty'))}</div>`
+  // As last shown: by pair, or by coder.
+  const cols = metricColumns(snap.measure, snap.coders.length, config?.view === 'coders' ? 'coders' : 'pairs')
+  const head1 = `<tr><th class="rowhead" rowspan="2">${escHtml(t('intercoder.code'))}</th>${headerGroups(snap, cols).map((g) => `<th${g.span > 1 ? ` colspan="${g.span}"` : ''}>${escHtml(g.label)}</th>`).join('')}</tr>`
+  const head2 = `<tr>${cols.map((c) => `<th>${escHtml(metricLabel(c.metric))}</th>`).join('')}</tr>`
+  const body = tableRows(snap, new Set())
+    .map((r) => `<tr><td class="rowhead">${escHtml(r.label)}</td>${cols.map((c) => {
+      const v = metricValue(r.cell, c, snap.measure)
+      const d = alphaChange(r.cell, c, snap.measure)
+      return `<td${v === null ? ' class="zero"' : ''}>${escHtml(formatMetric(v, c.metric))}${d === null ? '' : ` (${escHtml(formatChange(d))})`}</td>`
+    }).join('')}</tr>`)
+    .join('')
+  const notes = settingsRows(snap).map(([k, v]) => `${escHtml(k)}: ${escHtml(v)}`).join('<br>')
+  return wrapTable(`<thead>${head1}${head2}</thead><tbody>${body}</tbody>`, cols.length) + `<div class="report-note">${notes}</div>`
 }
 
 /** Render one analysis item: regenerate its table fresh, or a short
@@ -758,11 +804,11 @@ export function renderAnalysisItemHtml(
   prefix = ''
 ): string {
   const sa = useProjectStore.getState().savedAnalyses?.find((a) => a.guid === item.refGuid)
-  const toolLabel = TOOL_REGISTRY[item.toolType]?.label ?? 'Analysis'
+  const toolLabel = TOOL_REGISTRY[item.toolType]?.label ?? t('reports.analysis')
   if (!sa) {
-    return `<div class="report-block" id="${anchor}"><div class="report-item-head">${prefix}${escHtml(toolLabel)}</div><div class="empty">(deleted analysis)</div></div>`
+    return `<div class="report-block" id="${anchor}"><div class="report-item-head">${prefix}${escHtml(toolLabel)}</div><div class="empty">${escHtml(t('reports.deletedAnalysis'))}</div></div>`
   }
-  const head = `<div class="report-item-head">${prefix}${escHtml(toolLabel)} — ${escHtml(sa.name)}</div>`
+  const head = `<div class="report-item-head">${prefix}${escHtml(t('reports.headWith', { kind: toolLabel, name: sa.name }))}</div>`
   let inner: string
   try {
     switch (sa.toolType) {
@@ -793,11 +839,14 @@ export function renderAnalysisItemHtml(
       case 'relationship-map':
         inner = relationshipMapHtml(sa.config)
         break
+      case 'intercoder-agreement':
+        inner = intercoderHtml(sa.config)
+        break
       default:
-        inner = `<div class="empty">${escHtml(sa.name)} — table generation for ${escHtml(toolLabel)} is coming soon.</div>`
+        inner = `<div class="empty">${escHtml(t('reports.comingSoon', { name: sa.name, tool: toolLabel }))}</div>`
     }
   } catch {
-    inner = '<div class="empty">Could not regenerate this analysis.</div>'
+    inner = `<div class="empty">${escHtml(t('reports.couldNotRegenerate'))}</div>`
   }
   return `<div class="report-block" id="${anchor}">${head}${inner}</div>`
 }

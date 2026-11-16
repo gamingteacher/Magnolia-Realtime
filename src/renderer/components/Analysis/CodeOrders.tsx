@@ -30,6 +30,8 @@ import { renameSavedAnalysis } from '../../utils/rename-saved-analysis'
 import { useToolDirtyState } from '../../hooks/use-tool-dirty-state'
 import { useRegisterToolSave } from '../../hooks/use-register-tool-save'
 import { useThemeSvgColors, SVG_FONT_FAMILY } from '../../utils/use-theme-svg-colors'
+import { useTranslation } from 'react-i18next'
+import { formatPercent } from '../../i18n'
 
 interface Props {
   data: AnalysisInitData
@@ -86,15 +88,30 @@ interface CodeSegment {
 function surveyCellLayout(
   data: AnalysisInitData,
   sourceGuid: string
-): { total: number; offsetByCell: Map<string, number> } {
+): { total: number; offsetByCell: Map<string, number>; lengthByCell: Map<string, number> } {
   const cells = data.surveyCodableCells?.[sourceGuid] || []
   let total = 0
   const offsetByCell = new Map<string, number>()
+  const lengthByCell = new Map<string, number>()
   for (const c of cells) {
+    const len = Array.from(c.text).length
     offsetByCell.set(c.respondentId + ' ' + c.questionId, total)
-    total += Array.from(c.text).length
+    lengthByCell.set(c.respondentId + ' ' + c.questionId, len)
+    total += len
   }
-  return { total, offsetByCell }
+  return { total, offsetByCell, lengthByCell }
+}
+
+/** A coding's text span clipped to its document (or cell), or null when it
+ *  has none: a PDF / image region, or a video coding made on the timeline
+ *  before the transcript had timing (0–0) — those have no place in the
+ *  text to draw. Clipping keeps a coding that runs past the end (an
+ *  edited or foreign file) inside its own slot. */
+function textSpan(sel: { startPosition: number; endPosition: number; pdfRegion?: unknown }, len: number): { start: number; end: number } | null {
+  if (sel.pdfRegion) return null
+  const start = Math.max(0, Math.min(len, sel.startPosition))
+  const end = Math.max(0, Math.min(len, sel.endPosition))
+  return end > start ? { start, end } : null
 }
 
 function buildSegments(
@@ -110,18 +127,21 @@ function buildSegments(
   if (src?.sourceType === 'survey') {
     // Position codings within the concatenated codable cells, not the
     // raw CSV — survey offsets are cell-relative.
-    const { total, offsetByCell } = surveyCellLayout(data, sourceGuid)
+    const { total, offsetByCell, lengthByCell } = surveyCellLayout(data, sourceGuid)
     if (total === 0) return []
     for (const sel of sels) {
       if (!sel.surveyCell) continue
-      const base = offsetByCell.get(sel.surveyCell.respondentId + ' ' + sel.surveyCell.questionId)
+      const cellKey = sel.surveyCell.respondentId + ' ' + sel.surveyCell.questionId
+      const base = offsetByCell.get(cellKey)
       if (base === undefined) continue
+      const span = textSpan(sel, lengthByCell.get(cellKey) ?? 0)
+      if (!span) continue
       for (const coding of sel.codings) {
         if (!codeGuids.includes(coding.codeGuid)) continue
         const info = codeMap.get(coding.codeGuid)
         segments.push({
-          start: (base + sel.startPosition) / total,
-          end: (base + sel.endPosition) / total,
+          start: (base + span.start) / total,
+          end: (base + span.end) / total,
           color: info?.color || '#888',
           codeGuid: coding.codeGuid,
           codeName: info?.name || ''
@@ -138,12 +158,14 @@ function buildSegments(
   if (totalCp === 0) return []
 
   for (const sel of sels) {
+    const span = textSpan(sel, totalCp)
+    if (!span) continue
     for (const coding of sel.codings) {
       if (!codeGuids.includes(coding.codeGuid)) continue
       const info = codeMap.get(coding.codeGuid)
       segments.push({
-        start: sel.startPosition / totalCp,
-        end: sel.endPosition / totalCp,
+        start: span.start / totalCp,
+        end: span.end / totalCp,
         color: info?.color || '#888',
         codeGuid: coding.codeGuid,
         codeName: info?.name || ''
@@ -157,6 +179,7 @@ function buildSegments(
 }
 
 export function CodeOrders({ data: propData, savedConfig, inTab }: Props) {
+  const { t } = useTranslation()
   const [docFilter, setDocFilter] = useState<DocumentFilterState>(documentFilterFromConfig(savedConfig))
   const [codeGuids, setCodeGuids] = useState<string[]>(savedConfig?.codeGuids ?? [])
   const [groupBy, setGroupBy] = useState<GroupByEntry[]>(
@@ -269,7 +292,7 @@ export function CodeOrders({ data: propData, savedConfig, inTab }: Props) {
       // (open-ended) length, not the raw CSV, and their cell-relative
       // selection offsets are placed within each cell's slot.
       let totalCp = 0
-      const layouts: ({ total: number; offsetByCell: Map<string, number> } | null)[] = []
+      const layouts: ({ total: number; offsetByCell: Map<string, number>; lengthByCell: Map<string, number> } | null)[] = []
       const sourceLengths: number[] = []
       for (const sg of row.sourceGuids) {
         const isSurvey = rd.sources.find((s) => s.guid === sg)?.sourceType === 'survey'
@@ -298,18 +321,23 @@ export function CodeOrders({ data: propData, savedConfig, inTab }: Props) {
         for (const sel of sels) {
           // For surveys, shift cell-relative offsets by the cell's slot.
           let base = offset
+          let slot = len
           if (layout) {
             if (!sel.surveyCell) continue
-            const cellOff = layout.offsetByCell.get(sel.surveyCell.respondentId + ' ' + sel.surveyCell.questionId)
+            const cellKey = sel.surveyCell.respondentId + ' ' + sel.surveyCell.questionId
+            const cellOff = layout.offsetByCell.get(cellKey)
             if (cellOff === undefined) continue
             base = offset + cellOff
+            slot = layout.lengthByCell.get(cellKey) ?? 0
           }
+          const span = textSpan(sel, slot)
+          if (!span) continue
           for (const coding of sel.codings) {
             if (!codeGuids.includes(coding.codeGuid)) continue
             const info = codeMap.get(coding.codeGuid)
             segments.push({
-              start: (base + sel.startPosition) / totalCp,
-              end: (base + sel.endPosition) / totalCp,
+              start: (base + span.start) / totalCp,
+              end: (base + span.end) / totalCp,
               color: info?.color || '#888',
               codeGuid: coding.codeGuid,
               codeName: info?.name || ''
@@ -462,16 +490,16 @@ export function CodeOrders({ data: propData, savedConfig, inTab }: Props) {
       <div style={{ padding: '14px 20px 6px', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-secondary)' }}>
           <Icon icon={faBarsStaggered} className="analysis-header-icon" style={{ fontSize: 16 }} />
-          Code Orders{isExisting ? ':' : ''}
+          {t('tools.codeOrders.label')}{isExisting ? ':' : ''}
           {isExisting && <EditableTitleSuffix name={analysisName} onRename={handleRename} />}
         </h2>
         <div style={{ flex: 1 }} />
         <button className="secondary" style={{ fontSize: 11, padding: '4px 14px' }} onClick={() => inTab ? inTab.onClose() : window.close()}>
-          Close
+          {t('common.close')}
         </button>
         {isExisting && dirty && (
           <button className="secondary" style={{ fontSize: 11, padding: '4px 14px' }} onClick={handleDiscard}>
-            Discard Changes
+            {t('common.discardChanges')}
           </button>
         )}
         {isExisting ? (
@@ -480,11 +508,11 @@ export function CodeOrders({ data: propData, savedConfig, inTab }: Props) {
             disabled={!dirty}
             onClick={() => { handleSave(analysisName) }}
           >
-            {dirty ? 'Update Analysis' : 'Saved'}
+            {dirty ? t('analysis.update') : t('analysis.saved')}
           </button>
         ) : (
           <button style={{ fontSize: 11, padding: '4px 14px' }} onClick={() => setShowSaveDialog(true)}>
-            Save Analysis
+            {t('analysis.save')}
           </button>
         )}
         {/* Clearance for the floating MemoFab. */}
@@ -494,24 +522,24 @@ export function CodeOrders({ data: propData, savedConfig, inTab }: Props) {
       {showSaveDialog && (
         <div className="modal-overlay">
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>Save Analysis</h2>
+            <h2>{t('analysis.save')}</h2>
             <input
               autoFocus
               type="text"
               defaultValue={analysisName}
-              placeholder="Analysis name"
+              placeholder={t('analysis.namePlaceholder')}
               style={{ width: '100%' }}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') handleSave((e.target as HTMLInputElement).value.trim() || 'Untitled')
+                if (e.key === 'Enter') handleSave((e.target as HTMLInputElement).value.trim() || t('common.untitled'))
                 if (e.key === 'Escape') setShowSaveDialog(false)
               }}
             />
             <div className="modal-actions">
-              <button className="secondary" onClick={() => setShowSaveDialog(false)}>Cancel</button>
+              <button className="secondary" onClick={() => setShowSaveDialog(false)}>{t('common.cancel')}</button>
               <button onClick={(e) => {
                 const input = (e.target as HTMLElement).parentElement!.parentElement!.querySelector('input') as HTMLInputElement
-                handleSave(input.value.trim() || 'Untitled')
-              }}>Save</button>
+                handleSave(input.value.trim() || t('common.untitled'))
+              }}>{t('common.save')}</button>
             </div>
           </div>
         </div>
@@ -535,9 +563,9 @@ export function CodeOrders({ data: propData, savedConfig, inTab }: Props) {
           onDrop={handleTagDrop}
         >
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, marginBottom: groupBy.length > 0 ? 8 : 0, position: 'relative', zIndex: 1 }}>
-            <span style={{ fontSize: 'var(--font-size-lg)', fontWeight: 600, color: 'var(--text-secondary)' }}>Grouped by</span>
+            <span style={{ fontSize: 'var(--font-size-lg)', fontWeight: 600, color: 'var(--text-secondary)' }}>{t('analysis.groupedBy')}</span>
             <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-              Drag tags, categories, or folders here
+              {t('analysis.dragGroupHint')}
             </span>
           </div>
           <div style={{ position: 'relative', zIndex: 1 }}>
@@ -573,9 +601,9 @@ export function CodeOrders({ data: propData, savedConfig, inTab }: Props) {
           onDrop={handleDrop}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, position: 'relative', zIndex: 1 }}>
-            <span style={{ fontSize: 'var(--font-size-lg)', fontWeight: 600, color: 'var(--text-secondary)' }}>Results</span>
+            <span style={{ fontSize: 'var(--font-size-lg)', fontWeight: 600, color: 'var(--text-secondary)' }}>{t('analysis.results')}</span>
             <button className="secondary" style={{ fontSize: 10, padding: '3px 8px' }} onClick={handleExportSvg} disabled={codeGuids.length === 0 || rows.length === 0}>
-              Export SVG
+              {t('analysis.exportSvg')}
             </button>
           </div>
 
@@ -598,8 +626,8 @@ export function CodeOrders({ data: propData, savedConfig, inTab }: Props) {
           {codeGuids.length === 0 || rows.length === 0 ? (
             <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 'var(--font-size-sm)', position: 'relative', zIndex: 1 }}>
               {codeGuids.length === 0
-                ? 'Drag codes from the Code Browser to build the visualisation'
-                : 'Select documents using the Document Selector above'}
+                ? t('codeOrders.dragCodes')
+                : t('codeOrders.selectDocuments')}
             </div>
           ) : (
             <div style={{ overflowX: 'auto' }}>
@@ -687,7 +715,7 @@ export function CodeOrders({ data: propData, savedConfig, inTab }: Props) {
                               window.api.sendAnalysisAction('run-code-in-doc-query', seg.codeGuid, row.sourceGuids, filteredSourceGuids, surveyScope(row))
                             }}
                           >
-                            <title>{`${seg.codeName} (${(seg.start * 100).toFixed(0)}%–${(seg.end * 100).toFixed(0)}%)`}</title>
+                            <title>{`${seg.codeName} (${formatPercent(seg.start * 100, 0)}–${formatPercent(seg.end * 100, 0)})`}</title>
                           </rect>
                         )
                       })}

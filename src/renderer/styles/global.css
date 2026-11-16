@@ -257,14 +257,14 @@
  * take a radius concentric with the window's: its radius less the
  * inset (the padding plus the panel's margin, each --pane-half-gap). The window radius is in screen
  * points, so it's divided by the interface zoom. Applies to Magnolia and
- * Magnolia Dark. */
+ * Magnolia Dark, and not in full screen, where the window is square. */
 :root[data-platform="darwin"] {
   --mac-window-radius: 16px;
 }
-:root[data-platform="darwin"]:is([data-theme^="magnolia"], [data-theme^="forest"]) .panel[data-window-corner~="bl"] {
+:root[data-platform="darwin"]:not([data-fullscreen]):is([data-theme^="magnolia"], [data-theme^="forest"]) .panel[data-window-corner~="bl"] {
   border-bottom-left-radius: max(4px, calc(var(--mac-window-radius) / var(--window-zoom, 1) - 2 * var(--pane-half-gap)));
 }
-:root[data-platform="darwin"]:is([data-theme^="magnolia"], [data-theme^="forest"]) .panel[data-window-corner~="br"] {
+:root[data-platform="darwin"]:not([data-fullscreen]):is([data-theme^="magnolia"], [data-theme^="forest"]) .panel[data-window-corner~="br"] {
   border-bottom-right-radius: max(4px, calc(var(--mac-window-radius) / var(--window-zoom, 1) - 2 * var(--pane-half-gap)));
 }
 /* A pane that fills a pop-out window (#root > .panel) sits the same
@@ -275,7 +275,7 @@
   padding: var(--pane-half-gap);
   box-sizing: border-box;
 }
-:root[data-platform="darwin"]:is([data-theme^="magnolia"], [data-theme^="forest"]) #root > .panel {
+:root[data-platform="darwin"]:not([data-fullscreen]):is([data-theme^="magnolia"], [data-theme^="forest"]) #root > .panel {
   border-bottom-left-radius: max(4px, calc(var(--mac-window-radius) / var(--window-zoom, 1) - 2 * var(--pane-half-gap)));
   border-bottom-right-radius: max(4px, calc(var(--mac-window-radius) / var(--window-zoom, 1) - 2 * var(--pane-half-gap)));
 }
@@ -799,6 +799,16 @@ textarea:focus {
   container-name: panel-header;
 }
 
+/* A pane's title stays on one line, ending in "…" when a long one
+ * (Russian "СОХРАНЁННЫЕ ЗАМЕТКИ", say) doesn't fit the pane, so every
+ * header keeps the same height. */
+.panel-header > span {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* Query Results panel header is a hybrid: it shows the static
  * "Query" / "Query:" label followed by dynamic user content (the
  * saved-query name, or for popped-out windows a query string with
@@ -920,7 +930,7 @@ div:hover > .folder-row-add,
   cursor: pointer;
   white-space: nowrap;
   max-width: 180px;
-  border-right: 1px solid var(--border-color);
+  border-inline-end: 1px solid var(--border-color);
   border-bottom: 1px solid var(--border-color);
   user-select: none;
   flex-shrink: 0;
@@ -983,7 +993,7 @@ div:hover > .folder-row-add,
 .tab-item .panel-header-popout {
   opacity: 0;
   padding: 2px 2px;
-  margin-right: -2px;
+  margin-inline-end: -2px;
   transition: opacity 0.1s, color 0.15s;
 }
 .tab-item:hover .panel-header-popout,
@@ -1028,8 +1038,8 @@ div:hover > .folder-row-add,
 .md-heading-4 { font-size: 1.05em; font-weight: 600; margin-top: 0.2em; }
 .md-heading-5 { font-size: 1.0em; font-weight: 600; }
 .md-heading-6 { font-size: 0.95em; font-weight: 600; color: var(--text-secondary); }
-.md-blockquote { border-left: 3px solid var(--border-color); padding-left: 12px; color: var(--text-secondary); }
-.md-list-item { padding-left: 12px; }
+.md-blockquote { border-inline-start: 3px solid var(--border-color); padding-inline-start: 12px; color: var(--text-secondary); }
+.md-list-item { padding-inline-start: 12px; }
 .md-code-block { font-family: var(--font-mono); font-size: 0.9em; background: var(--bg-tertiary); border-radius: 3px; padding: 0 4px; }
 .md-hr { border-bottom: 1px solid var(--border-color); min-height: 0.3em; }
 .md-table-header { font-weight: 700; }
@@ -1119,8 +1129,10 @@ div:hover > .folder-row-add,
  * them. The cluster spans ~52 px starting at x=20 (set via
  * trafficLightPosition in main/index.ts), ending around x=72;
  * 92 px adds ~20 px of breathing room before the wordmark.
- * Other platforms have no traffic lights and need no indent. */
-:root[data-platform="darwin"] .app-toolbar {
+ * Other platforms have no traffic lights and need no indent, and nor
+ * does a full-screen window, where macOS hides them (data-fullscreen,
+ * set in platform/tauri-api.ts). */
+:root[data-platform="darwin"]:not([data-fullscreen]) .app-toolbar {
   padding-left: 92px;
 }
 .app-toolbar button,
@@ -1150,7 +1162,7 @@ div:hover > .folder-row-add,
 .zoom-strip > button {
   background: transparent;
   border: none;
-  border-left: 1px solid var(--border-color);
+  border-inline-start: 1px solid var(--border-color);
   border-radius: 0;
   padding: 0 8px;
   font-size: 11px;
@@ -1162,7 +1174,7 @@ div:hover > .folder-row-add,
   min-width: 24px;
   height: 100%;
 }
-.zoom-strip > button:first-child { border-left: none; }
+.zoom-strip > button:first-child { border-inline-start: none; }
 .zoom-strip > button:hover { background: var(--bg-tertiary); color: var(--text-primary); }
 .zoom-strip > button.active {
   background: var(--accent);
@@ -1183,14 +1195,14 @@ div:hover > .folder-row-add,
 .segmented > button {
   background: transparent;
   border: none;
-  border-left: 1px solid var(--border-color);
+  border-inline-start: 1px solid var(--border-color);
   border-radius: 0;
   padding: 3px 9px;
   font-size: 10px;
   color: var(--text-secondary);
   cursor: pointer;
 }
-.segmented > button:first-child { border-left: none; }
+.segmented > button:first-child { border-inline-start: none; }
 .segmented > button:hover:not(.active) { background: var(--bg-tertiary); color: var(--text-primary); }
 .segmented > button.active {
   background: var(--accent);
@@ -1412,7 +1424,7 @@ div:hover > .folder-row-add,
   background: transparent;
   font: inherit;
   color: var(--text-primary);
-  text-align: left;
+  text-align: start;
   transition: background 0.12s, border-color 0.12s;
 }
 .analysis-popover-tile:hover,
@@ -1463,7 +1475,7 @@ div:hover > .folder-row-add,
   background: transparent;
   font: inherit;
   color: var(--text-primary);
-  text-align: left;
+  text-align: start;
   transition: background 0.12s, border-color 0.12s;
 }
 .studio-popover-row:hover,
@@ -1526,6 +1538,16 @@ div:hover > .folder-row-add,
     var(--bg-tertiary) 100%
   );
 }
+/* Right-to-left, a slider runs from the right: fill from that side. */
+.themed-range:dir(rtl)::-webkit-slider-runnable-track {
+  background: linear-gradient(
+    to left,
+    var(--accent) 0%,
+    var(--accent) var(--filled, 0%),
+    var(--bg-tertiary) var(--filled, 0%),
+    var(--bg-tertiary) 100%
+  );
+}
 .themed-range::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
@@ -1582,6 +1604,45 @@ div:hover > .folder-row-add,
 /* (#5) Viewer control bar — sits between the tab bar and the document
  * body. Carries a small caption on the left, ⌘F hint on the right,
  * separated from the body by a thin border. */
+/* The document bar: the document's name, then the viewer's controls,
+ * then Export, Split and the memo button. The name takes the room
+ * that's left and shortens with "…"; only when even a short name won't
+ * fit do the controls move, all together, onto a second line. */
+.document-bar {
+  container-type: inline-size;
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 9px 16px 9px 20px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border-color);
+  user-select: none;
+}
+.document-bar-name {
+  flex: 1 1 0;
+  min-width: min(120px, 100%);
+  margin: 0;
+  font-size: 16px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.document-bar-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.document-bar .zoom-strip { height: 26px; flex-shrink: 0; }
+/* Narrow: drop the zoom strip's 100% (Fit and −/+ remain). */
+@container (max-width: 520px) {
+  .document-bar .zoom-reset { display: none; }
+}
+
 .viewer-toolbar {
   height: 30px;
   flex-shrink: 0;
@@ -1685,7 +1746,7 @@ div:hover > .folder-row-add,
   width: 18px;
   height: 18px;
   padding: 0;
-  margin-right: -6px;
+  margin-inline-end: -6px;
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
@@ -1706,7 +1767,7 @@ div:hover > .folder-row-add,
 .markdown-content { line-height: 1.6; }
 .markdown-content p { margin: 0 0 8px; }
 .markdown-content p:last-child { margin-bottom: 0; }
-.markdown-content ul, .markdown-content ol { margin: 0 0 8px; padding-left: 20px; }
+.markdown-content ul, .markdown-content ol { margin: 0 0 8px; padding-inline-start: 20px; }
 .markdown-content li { margin-bottom: 2px; }
 .markdown-content h1, .markdown-content h2, .markdown-content h3,
 .markdown-content h4, .markdown-content h5, .markdown-content h6 {
@@ -1732,7 +1793,7 @@ div:hover > .folder-row-add,
 }
 .markdown-content pre code { background: none; padding: 0; }
 .markdown-content blockquote {
-  border-left: 3px solid var(--border-color);
+  border-inline-start: 3px solid var(--border-color);
   margin: 0 0 8px;
   padding: 2px 0 2px 12px;
   color: var(--text-secondary);
@@ -1773,7 +1834,7 @@ div:hover > .folder-row-add,
 }
 .markdown-editor .tiptap p { margin: 0 0 8px; }
 .markdown-editor .tiptap p:last-child { margin-bottom: 0; }
-.markdown-editor .tiptap ul, .markdown-editor .tiptap ol { margin: 0 0 8px; padding-left: 20px; }
+.markdown-editor .tiptap ul, .markdown-editor .tiptap ol { margin: 0 0 8px; padding-inline-start: 20px; }
 .markdown-editor .tiptap li { margin-bottom: 2px; }
 .markdown-editor .tiptap li p { margin: 0; }
 .markdown-editor .tiptap h1, .markdown-editor .tiptap h2, .markdown-editor .tiptap h3 {
@@ -1799,7 +1860,7 @@ div:hover > .folder-row-add,
 }
 .markdown-editor .tiptap pre code { background: none; padding: 0; }
 .markdown-editor .tiptap blockquote {
-  border-left: 3px solid var(--border-color);
+  border-inline-start: 3px solid var(--border-color);
   margin: 0 0 8px;
   padding: 2px 0 2px 12px;
   color: var(--text-secondary);
@@ -1813,7 +1874,7 @@ div:hover > .folder-row-add,
   color: var(--text-muted);
   font-style: italic;
   pointer-events: none;
-  float: left;
+  float: inline-start;
   height: 0;
 }
 .markdown-editor .tiptap .is-empty::before {
@@ -1821,7 +1882,7 @@ div:hover > .folder-row-add,
   color: var(--text-muted);
   font-style: italic;
   pointer-events: none;
-  float: left;
+  float: inline-start;
   height: 0;
 }
 
@@ -1952,6 +2013,33 @@ div:hover > .folder-row-add,
   }
 }
 
+/* Survey donuts: hovering an option, in the chart or its legend, slides
+ * its segment out from the centre (the offset is set inline) with a soft
+ * glow in the segment's own colour, and enlarges its swatch, which glows
+ * the same way (--seg). */
+.donut-seg {
+  transition: transform 0.2s cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+/* The glow: a blurred copy of the segment behind it (SVG filter, since
+ * WebKit ignores CSS drop-shadow on SVG shapes), faded in and moved with
+ * the segment. Clicks pass through to the segment. */
+.donut-glow {
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 0.2s cubic-bezier(0.34, 1.4, 0.64, 1), opacity 0.2s ease-out;
+}
+.donut-glow.is-hot { opacity: 0.7; }
+.donut-swatch {
+  transition: transform 0.2s cubic-bezier(0.34, 1.4, 0.64, 1), box-shadow 0.2s ease-out;
+}
+.donut-swatch.is-hot {
+  transform: scale(1.3);
+  box-shadow: 0 0 4px color-mix(in srgb, var(--seg) 70%, transparent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .donut-seg, .donut-glow, .donut-swatch { transition: none; }
+}
+
 /* Pulse animation for renamed saved queries */
 @keyframes query-pulse {
   0% { background-color: var(--accent); color: #fff; }
@@ -2053,6 +2141,8 @@ div:hover > .folder-row-add,
 :root:not([data-theme="high-contrast"]) :is(svg.mg-icon, svg.analysis-header-icon).lucide-message-circle-question-mark > :nth-child(1) { fill: color-mix(in srgb, var(--rb-blue) var(--rb-tint), transparent); }
 :root:not([data-theme="high-contrast"]) :is(svg.mg-icon, svg.analysis-header-icon).lucide-square-arrow-right-enter > :nth-child(-n+2),
 :root:not([data-theme="high-contrast"]) :is(svg.mg-icon, svg.analysis-header-icon).lucide-git-merge > :nth-child(3),
+/* Import from Zotero: the lines of text on the open book's pages */
+:root:not([data-theme="high-contrast"]) :is(svg.mg-icon, svg.analysis-header-icon).lucide-book-open-text > :is(:nth-child(2), :nth-child(3), :nth-child(5), :nth-child(6)),
 :root:not([data-theme="high-contrast"]) :is(svg.mg-icon, svg.analysis-header-icon).lucide-book > *,
 :root:not([data-theme="high-contrast"]) :is(svg.mg-icon, svg.analysis-header-icon).lucide-notebook-pen > :nth-child(n+2):nth-child(-n+5),
 :root:not([data-theme="high-contrast"]) :is(svg.mg-icon, svg.analysis-header-icon).lucide-tags > :nth-child(2),
@@ -2077,6 +2167,8 @@ div:hover > .folder-row-add,
 :root:not([data-theme="high-contrast"]) :is(svg.mg-icon, svg.analysis-header-icon).lucide-type > :nth-child(1),
 :root:not([data-theme="high-contrast"]) :is(svg.mg-icon, svg.analysis-header-icon).lucide-whole-word > :nth-child(-n+2),
 :root:not([data-theme="high-contrast"]) :is(svg.mg-icon, svg.analysis-header-icon).lucide-share-2 > :nth-child(4),
+/* Inter-coder Agreement: the person behind */
+:root:not([data-theme="high-contrast"]) :is(svg.mg-icon, svg.analysis-header-icon).lucide-users > :nth-child(-n+3):nth-child(n+2),
 :root:not([data-theme="high-contrast"]) :is(svg.mg-icon, svg.analysis-header-icon).lucide-notebook-tabs > :nth-child(-n+4) { stroke: var(--rb-blue); }
 :root:not([data-theme="high-contrast"]) :is(svg.mg-icon, svg.analysis-header-icon).lucide-chart-column > :nth-child(4),
 :root:not([data-theme="high-contrast"]) :is(svg.mg-icon, svg.analysis-header-icon).lucide-chart-bar > :nth-child(4),
@@ -2166,7 +2258,7 @@ div:hover > .folder-row-add,
   gap: 2px;
   flex: 1;
   min-width: 0;
-  padding-left: 4px;
+  padding-inline-start: 4px;
 }
 /* Plain text tabs. The selected one is underlined in the accent; a
  * hovered one gets a faint underline rather than a box, since a box
@@ -2203,7 +2295,7 @@ div:hover > .folder-row-add,
 .ribbon-tabs:not(.ribbon-collapsed) .ribbon-tab[aria-selected="true"]::after { background: var(--accent); }
 .ribbon-collapse {
   align-self: center;
-  margin-left: 4px;
+  margin-inline-start: 4px;
   width: 26px;
   height: 24px;
   padding: 0;
@@ -2239,11 +2331,40 @@ div:hover > .folder-row-add,
   padding: 4px 8px 4px;
   background: linear-gradient(180deg, var(--ribbon-shade-top), var(--ribbon-shade-bottom));
   border-bottom: 1px solid var(--border-color);
+}
+/* The groups. They scroll sideways only when even the narrowed buttons
+ * don't fit (Ribbon.tsx), between the chevrons below. */
+.ribbon-scroll {
+  display: flex;
+  align-items: stretch;
+  flex: 1;
+  min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
 }
-.ribbon-body::-webkit-scrollbar { display: none; }
+.ribbon-scroll::-webkit-scrollbar { display: none; }
+/* Chevrons in their own gutters (not over the buttons), shown only while
+ * the buttons overflow, each fading in while there's more on its side,
+ * like the Icons and Text toolbar's. */
+.ribbon-scroll-hint {
+  flex-shrink: 0;
+  width: 28px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 16px;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+.ribbon-scroll-hint[data-shown] { opacity: 1; pointer-events: auto; }
+:root .ribbon-scroll-hint:hover { background: transparent; color: var(--text-primary); }
 /* Shown from a collapsed ribbon: floats over the panes below. */
 .ribbon-peek-host {
   position: absolute;
@@ -2260,10 +2381,10 @@ div:hover > .folder-row-add,
   flex-direction: column;
   align-items: center;
   padding: 0 10px;
-  border-right: 1px solid var(--border-color);
+  border-inline-end: 1px solid var(--border-color);
   flex-shrink: 0;
 }
-.ribbon-group:last-child { border-right: none; }
+.ribbon-group:last-child { border-inline-end: none; }
 .ribbon-group-buttons { display: flex; gap: 2px; flex: 1; }
 .ribbon-group-label {
   font-size: 11px;
@@ -2277,7 +2398,10 @@ div:hover > .folder-row-add,
   flex-direction: column;
   align-items: center;
   gap: 5px;
-  width: 76px;
+  /* At least this wide; a longer label widens it (Ribbon.tsx sets the
+   * label's min-width to its two-line width). */
+  width: min-content;
+  min-width: 76px;
   padding: 5px 4px 4px;
   border: none;
   border-radius: 6px;
@@ -2300,6 +2424,16 @@ div:hover > .folder-row-add,
   /* Room for two lines on every tab, so the ribbon keeps one height
    * and the panes below don't jump when you switch tabs. */
   min-height: 2.4em;
+}
+/* A tab too wide for the window at its label widths (Ribbon.tsx): the
+ * one-word labels go back to 76px buttons, with long words hyphenated by
+ * the interface language's rules (the page's lang), or broken anywhere as
+ * a last resort. Beyond that the buttons scroll. */
+.ribbon-body[data-tight="words"] .ribbon-label[data-one-word] {
+  min-width: 0 !important;
+  -webkit-hyphens: auto;
+  hyphens: auto;
+  overflow-wrap: anywhere;
 }
 /* Flat buttons: the glyph alone, in the icon palette (see "Icon
  * palette" above). */
@@ -2348,7 +2482,7 @@ div:hover > .folder-row-add,
 .ribbon-badge {
   position: absolute;
   top: 0;
-  right: 0;
+  inset-inline-end: 0;
   width: 8px;
   height: 8px;
   border-radius: 50%;
@@ -2371,4 +2505,255 @@ div:hover > .folder-row-add,
 }
 :root:is([data-theme="magnolia"], [data-theme="forest-light"]):has(.app-toolbar[data-toolbar-style="ribbon"]) .app-main-panels {
   padding-top: var(--pane-half-gap);
+}
+
+/* The user's own text (documents, transcripts, survey answers, memos and
+ * notes, query results, quotes, anything typed into a text box) reads in
+ * its own direction, whatever the interface's: each paragraph takes the
+ * direction of its first letter, so an Arabic paragraph runs and aligns
+ * right to left and an English one left to right, in the same document.
+ * On an inline element (a snippet in a line of interface text) it isolates
+ * the snippet in its own direction. Exported reports set this in their
+ * own stylesheets. */
+.user-text,
+.user-text :is(p, li, h1, h2, h3, h4, h5, h6, blockquote, td, th, dd),
+.ProseMirror :is(p, li, h1, h2, h3, h4, h5, h6, blockquote, td, th),
+textarea {
+  unicode-bidi: plaintext;
+}
+
+/* Icons that point a direction (chevrons, arrows) point the other way in
+ * a right-to-left language. `scale` rather than `transform`, so it
+ * combines with the rotations tree chevrons use for expanded. */
+[dir="rtl"] :is(
+  svg.lucide-chevron-left, svg.lucide-chevron-right,
+  svg.lucide-chevrons-left, svg.lucide-chevrons-right,
+  svg.lucide-arrow-left, svg.lucide-arrow-right,
+  svg.lucide-chevron-first, svg.lucide-chevron-last,
+  svg.lucide-panel-left, svg.lucide-panel-right,
+  svg.lucide-undo, svg.lucide-redo, svg.lucide-undo-2, svg.lucide-redo-2,
+  svg.lucide-list-indent-increase, svg.lucide-list-indent-decrease
+) {
+  scale: -1 1;
+}
+
+/* The coding margin in a right-to-left interface: its positions run from
+ * the start edge (the right), and the bracket layers are flipped so each
+ * bracket opens towards the text (CodedTextView, RichMarginColumn). */
+[dir="rtl"] [data-bracket-overlay] { transform: scaleX(-1); }
+
+/* Files dragged over the window: a cue that dropping imports them. It
+   lets pointer events through, so drop targets underneath (the Document
+   Browser's folders) still work. The frame is inset, with its own rounded
+   corners, so it sits clear of the window's rounded corners. */
+.file-drop-cue {
+  position: fixed;
+  inset: 0;
+  z-index: 19000;
+  pointer-events: none;
+  display: flex;
+  padding: 10px;
+  animation: file-drop-cue-in 0.12s ease-out;
+}
+.file-drop-cue-frame {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  border: 2px dashed var(--accent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.file-drop-cue-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  max-width: 360px;
+  padding: 20px 28px;
+  text-align: center;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md, 8px);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
+}
+.file-drop-cue-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+.file-drop-cue-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+@keyframes file-drop-cue-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Import from Zotero: the library's collections beside its items. */
+.modal.zotero-import {
+  width: 760px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.zotero-message {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  line-height: 1.5;
+  max-width: 520px;
+}
+.zotero-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.zotero-bar input { flex: 1; min-width: 0; }
+.zotero-panes {
+  display: flex;
+  gap: 10px;
+  height: min(420px, 55vh);
+  min-height: 0;
+}
+.zotero-collections,
+.zotero-items {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  overflow-y: auto;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--bg-primary);
+  font-size: var(--font-size-sm);
+}
+.zotero-collections { width: 200px; flex-shrink: 0; }
+.zotero-items { flex: 1; min-width: 0; }
+.zotero-collections li {
+  padding: 4px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.zotero-collections li.selected {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--text-primary);
+}
+.zotero-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+.zotero-item input { margin-top: 2px; flex-shrink: 0; }
+.zotero-item.disabled { cursor: default; opacity: 0.55; }
+.zotero-all { border-bottom: 1px solid var(--border-color); color: var(--text-secondary); }
+.zotero-item-text { display: flex; flex-direction: column; min-width: 0; }
+.zotero-item-title { color: var(--text-primary); overflow-wrap: anywhere; }
+.zotero-item-details { color: var(--text-muted); font-size: var(--font-size-xs, 11px); }
+.zotero-empty { padding: 10px; color: var(--text-muted); }
+
+/* The import dialog: every document being imported, with its stage. */
+.modal.import-progress {
+  width: 460px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.import-progress-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bg-tertiary);
+  overflow: hidden;
+  margin-bottom: 12px;
+  flex-shrink: 0;
+}
+.import-progress-bar > div {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s ease-out;
+}
+.import-progress-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  max-height: 50vh;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--bg-primary);
+}
+.import-progress-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 7px 10px;
+  font-size: var(--font-size-sm);
+}
+.import-progress-list li + li {
+  border-top: 1px solid var(--border-color);
+}
+.import-progress-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.import-progress-waiting {
+  border-radius: 50%;
+  border: 1.5px solid var(--text-muted);
+  opacity: 0.6;
+  box-sizing: border-box;
+}
+.import-progress-spinner {
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  border-top-color: var(--accent);
+  box-sizing: border-box;
+  animation: import-progress-spin 0.8s linear infinite;
+}
+@keyframes import-progress-spin {
+  to { transform: rotate(360deg); }
+}
+.import-progress-text {
+  flex: 1;
+  min-width: 0;
+}
+.import-progress-row {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+}
+.import-progress-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+.import-progress-stage {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+.import-progress-list li[data-stage="waiting"] .import-progress-name {
+  color: var(--text-muted);
+}
+.import-progress-list li[data-stage="failed"] .import-progress-stage {
+  color: var(--danger);
+}
+.import-progress-error {
+  margin-top: 2px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+@media (prefers-reduced-motion: reduce) {
+  .file-drop-cue { animation: none; }
+  .import-progress-spinner { animation-duration: 2.4s; }
 }

@@ -52,10 +52,16 @@ fn read_entry(zip: &mut zip::ZipArchive<Cursor<&[u8]>>, name: &str) -> Option<St
 }
 
 pub fn docx_to_html(bytes: &[u8]) -> Result<String, String> {
-    let mut zip =
-        zip::ZipArchive::new(Cursor::new(bytes)).map_err(|e| format!("Invalid DOCX: {e}"))?;
-    let document =
-        read_entry(&mut zip, "word/document.xml").ok_or("Invalid DOCX: no word/document.xml")?;
+    let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).map_err(|e| {
+        crate::message::tr(
+            "invalidDocx",
+            "This file is damaged or isn’t really a Word document. Try opening it in Word and saving it again as .docx.",
+            &[("detail", &e.to_string())],
+        )
+    })?;
+    let document = read_entry(&mut zip, "word/document.xml").ok_or_else(|| {
+        crate::message::tr("docxNoDocument", "This file is damaged or isn’t really a Word document. Try opening it in Word and saving it again as .docx.", &[])
+    })?;
     let rels_xml = read_entry(&mut zip, "word/_rels/document.xml.rels").unwrap_or_default();
     let styles_xml = read_entry(&mut zip, "word/styles.xml").unwrap_or_default();
     let numbering_xml = read_entry(&mut zip, "word/numbering.xml").unwrap_or_default();
@@ -125,14 +131,20 @@ pub fn docx_to_html(bytes: &[u8]) -> Result<String, String> {
         }
     }
 
-    let doc = Document::parse(&document).map_err(|e| format!("Invalid DOCX document: {e}"))?;
+    let doc = Document::parse(&document).map_err(|e| {
+        crate::message::tr(
+            "invalidDocxDocument",
+            "This file is damaged or isn’t really a Word document. Try opening it in Word and saving it again as .docx.",
+            &[("detail", &e.to_string())],
+        )
+    })?;
     let fdoc = Document::parse(&footnotes_xml).ok();
     let edoc = Document::parse(&endnotes_xml).ok();
 
     let body = doc
         .descendants()
         .find(|n| is(*n, "body"))
-        .ok_or("Invalid DOCX: no body")?;
+        .ok_or_else(|| crate::message::tr("docxNoBody", "This file is damaged or isn’t really a Word document. Try opening it in Word and saving it again as .docx.", &[]))?;
     let mut ctx = Ctx {
         rels,
         media,

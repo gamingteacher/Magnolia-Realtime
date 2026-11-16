@@ -1,8 +1,9 @@
 //! Window lifecycle: the welcome screen, the main project window and the
 //! pop-out child windows (codebook, logbook, the memos list, each memo,
-//! query results), plus the
+//! query results, inter-coder agreement results), plus the
 //! flush-on-close handshake and quitting.
 
+use crate::i18n;
 use crate::menu;
 use crate::state::AppState;
 use serde_json::{Value, json};
@@ -20,6 +21,7 @@ pub const LOGBOOK: &str = "logbook";
 /// own `memo-<guid>` window).
 pub const MEMOS: &str = "memos";
 pub const QUERY_RESULTS: &str = "query-results";
+pub const INTERCODER_RESULTS: &str = "intercoder-results";
 pub const UPDATE: &str = "update";
 const MEMO_PREFIX: &str = "memo-";
 
@@ -374,13 +376,20 @@ fn on_main_destroyed(app: &AppHandle) {
         }
     }
     if quitting {
-        crate::updater::install_pending_on_quit(app);
-        if restart {
-            app.restart();
-        }
-        app.exit(0);
+        finish_quit(app, restart);
     } else {
         show_welcome(app);
+    }
+}
+
+/// The last step of quitting, with everything flushed: apply a downloaded
+/// update and exit, or relaunch if this is Install and Relaunch.
+fn finish_quit(app: &AppHandle, restart: bool) {
+    if restart {
+        crate::updater::install_pending_and_relaunch(app);
+    } else {
+        crate::updater::install_pending_on_quit(app);
+        app.exit(0);
     }
 }
 
@@ -392,11 +401,8 @@ pub fn quit(app: &AppHandle) {
             let _ = w.close();
         }
         None => {
-            crate::updater::install_pending_on_quit(app);
-            if state(app).ui.lock().unwrap().restart_after_quit {
-                app.restart();
-            }
-            app.exit(0);
+            let restart = state(app).ui.lock().unwrap().restart_after_quit;
+            finish_quit(app, restart);
         }
     }
 }
@@ -435,9 +441,8 @@ pub fn show_update_window(app: &AppHandle, prompt: bool) {
         let _ = w.set_focus();
         return;
     }
-    let title = if cfg!(target_os = "macos") { "Software Update" } else { "Magnolia Update" };
     let b = base_builder(app, UPDATE, "update.html")
-        .title(title)
+        .title(update_window_title())
         .inner_size(width, height)
         .resizable(prompt)
         .minimizable(false)
@@ -485,8 +490,34 @@ pub fn close_update_window(app: &AppHandle) {
 
 // ── Child windows ──
 
+/// The update window's title: Software Update on macOS, as in other Mac apps.
+fn update_window_title() -> String {
+    i18n::t(if cfg!(target_os = "macos") { "window.softwareUpdate" } else { "window.magnoliaUpdate" })
+}
+
+/// Retitle the open windows whose titles Magnolia sets (the language
+/// changed). The main window's title is the project's, set by its page.
+pub fn retitle(app: &AppHandle) {
+    for (label, w) in app.webview_windows() {
+        let key = match label.as_str() {
+            CODEBOOK => "window.codes",
+            LOGBOOK => "window.logbook",
+            MEMOS => "window.memos",
+            QUERY_RESULTS => "window.queries",
+            UPDATE => {
+                let _ = w.set_title(&update_window_title());
+                continue;
+            }
+            l if l.starts_with(MEMO_PREFIX) => "window.memo",
+            _ => continue,
+        };
+        let _ = w.set_title(&i18n::t(key));
+    }
+}
+
 struct ChildSpec {
     page: &'static str,
+    /// The window title's key in the catalogues' `native` section.
     title: &'static str,
     size: (f64, f64),
     min: (f64, f64),
@@ -506,7 +537,7 @@ fn open_child(app: &AppHandle, label: &str, spec: ChildSpec, data: Value) {
         return;
     }
     let b = base_builder(app, label, spec.page)
-        .title(spec.title)
+        .title(i18n::t(spec.title))
         .inner_size(spec.size.0, spec.size.1)
         .min_inner_size(spec.min.0, spec.min.1);
     // A transparent title bar shows the window's background colour, which
@@ -524,6 +555,9 @@ fn open_child(app: &AppHandle, label: &str, spec: ChildSpec, data: Value) {
                     if label == QUERY_RESULTS {
                         emit_to(&handle, MAIN, "query-results-window-closed", ());
                     }
+                    if label == INTERCODER_RESULTS {
+                        emit_to(&handle, MAIN, "intercoder-results-window-closed", ());
+                    }
                     menu::rebuild(&handle);
                 }
             });
@@ -536,7 +570,7 @@ fn open_child(app: &AppHandle, label: &str, spec: ChildSpec, data: Value) {
 pub fn open_codebook(app: &AppHandle, data: Value) {
     let spec = ChildSpec {
         page: "codebook.html",
-        title: "Codes",
+        title: "window.codes",
         size: (650.0, 700.0),
         min: (450.0, 400.0),
         init_event: "codebook-init-data",
@@ -547,7 +581,7 @@ pub fn open_codebook(app: &AppHandle, data: Value) {
 pub fn open_logbook(app: &AppHandle, data: Value) {
     let spec = ChildSpec {
         page: "logbook.html",
-        title: "Logbook",
+        title: "window.logbook",
         size: (650.0, 700.0),
         min: (450.0, 400.0),
         init_event: "logbook-init-data",
@@ -558,7 +592,7 @@ pub fn open_logbook(app: &AppHandle, data: Value) {
 pub fn open_memos(app: &AppHandle, data: Value) {
     let spec = ChildSpec {
         page: "memos.html",
-        title: "Memos",
+        title: "window.memos",
         size: (760.0, 700.0),
         min: (500.0, 400.0),
         init_event: "memos-init-data",
@@ -583,7 +617,7 @@ pub fn update_memos(app: &AppHandle, data: Value) {
 pub fn open_query_results(app: &AppHandle, data: Value) {
     let spec = ChildSpec {
         page: "query-results.html",
-        title: "Queries",
+        title: "window.queries",
         size: (900.0, 600.0),
         min: (500.0, 300.0),
         init_event: "query-results-init-data",
@@ -600,6 +634,40 @@ pub fn update_query_results(app: &AppHandle, data: Value) {
         .insert(QUERY_RESULTS.into(), data.clone());
     if app.get_webview_window(QUERY_RESULTS).is_some() {
         emit_to(app, QUERY_RESULTS, "query-results-init-data", data);
+    }
+}
+
+/// The Inter-coder Agreement results, popped out of their tool (to put
+/// them on a bigger screen, say).
+pub fn open_intercoder_results(app: &AppHandle, data: Value) {
+    let spec = ChildSpec {
+        page: "intercoder-results.html",
+        title: "window.intercoder",
+        size: (1100.0, 760.0),
+        min: (500.0, 300.0),
+        init_event: "intercoder-results-init-data",
+    };
+    open_child(app, INTERCODER_RESULTS, spec, data);
+}
+
+/// Refreshes the Inter-coder Agreement results window when it is open.
+pub fn update_intercoder_results(app: &AppHandle, data: Value) {
+    if app.get_webview_window(INTERCODER_RESULTS).is_none() {
+        return;
+    }
+    state(app)
+        .ui
+        .lock()
+        .unwrap()
+        .window_data
+        .insert(INTERCODER_RESULTS.into(), data.clone());
+    emit_to(app, INTERCODER_RESULTS, "intercoder-results-init-data", data);
+}
+
+/// Close a pop-out from the main window (its Pop back in button).
+pub fn close_child(app: &AppHandle, label: &str) {
+    if let Some(w) = app.get_webview_window(label) {
+        let _ = w.close();
     }
 }
 
@@ -622,7 +690,7 @@ pub fn open_memo(app: &AppHandle, data: Value) {
     let label = format!("{MEMO_PREFIX}{safe}");
     let spec = ChildSpec {
         page: "memo-edit.html",
-        title: "Memo",
+        title: "window.memo",
         size: (550.0, 500.0),
         min: (400.0, 350.0),
         init_event: "memo-edit-init-data",

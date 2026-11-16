@@ -10,19 +10,18 @@ import {
   type SetOp,
   type DNodeKind,
   type DocCategory,
-  type DocumentFilterState
+  type DocumentFilterState,
+  dateSpan,
+  newestFirst
 } from '../../utils/document-graph'
 import type { SurveyEntityRef } from '../../models/types'
 import { SurveyScopeLine, chosenIds, mayBeSurveyEntityDrag, parseSurveyEntityDrop, withSurveyEntity, withSurveyIds } from './SurveyScope'
+import { useTranslation } from 'react-i18next'
+import { t, compareText } from '../../i18n'
+import { isLetterKey } from '../../utils/keys'
 
-const CATEGORY_LABELS: Record<DocCategory, string> = {
-  video: 'Video',
-  audio: 'Audio',
-  document: 'Document',
-  image: 'Image',
-  survey: 'Survey',
-  note: 'Notes'
-}
+/** A document category's name (docSelector.category.<category>). */
+const categoryLabel = (category: DocCategory): string => t(`docSelector.category.${category}`)
 
 /* ═══════════════════════════════════════════════════
    Exported interfaces (backward-compatible)
@@ -111,15 +110,7 @@ const KIND_COLOR: Record<DNodeKind, string> = {
   result: '#8b5cf6'
 }
 
-const KIND_LABEL: Record<DNodeKind, string> = {
-  docs: 'Documents',
-  tag: 'Tag',
-  type: 'Type',
-  folder: 'Folder',
-  allDocs: 'All docs',
-  setOp: 'Logical',
-  result: 'Result'
-}
+const kindLabel = (kind: DNodeKind): string => t(`docSelector.kind.${kind}`)
 
 const SET_OP_LABEL: Record<SetOp, string> = {
   union: 'Union',
@@ -133,21 +124,9 @@ const SET_OP_COLOR: Record<SetOp, string> = {
   subtract: '#f43f5e'
 }
 
-const SET_OP_TOOLTIP: Record<SetOp, string> = {
-  union: 'UNION \u2014 documents from either input (Input 1 + Input 2)',
-  intersect: 'INTERSECT \u2014 only documents in both inputs (Input 1 \u2229 Input 2)',
-  subtract: 'SUBTRACT \u2014 documents in Input 1 but not in Input 2 (Input 1 \u2212 Input 2)'
-}
+const setOpTooltip = (op: SetOp): string => t(`docSelector.op.${op}`)
 
-const KIND_TOOLTIP: Record<DNodeKind, string> = {
-  docs: 'A specific set of documents dragged from the Document Browser',
-  tag: 'All documents assigned to a particular tag',
-  type: 'All documents matching a file type extension',
-  folder: 'All documents inside a folder (sub-folders included)',
-  allDocs: 'Every document in the project',
-  setOp: 'Combine document sets with union, intersect, or subtract',
-  result: 'The final document selection \u2014 connect an input or operation here'
-}
+const kindTooltip = (kind: DNodeKind): string => t(`docSelector.tip.${kind}`)
 
 /* ═══════════════════════════════════════════════════
    Helpers
@@ -224,7 +203,7 @@ function graphFromFilter(
         y: 30 + nextRow * ROW_GAP,
         tagCategoryGuid: tag?.categoryGuid,
         tagGuid,
-        tagName: tag?.value || tag?.name || 'Tag'
+        tagName: tag?.value || tag?.name || t('common.tag')
       }
       nodes.push(tagNode)
       sourceNodes.push(tagNode)
@@ -260,7 +239,7 @@ function graphFromFilter(
         y: 30 + nextRow * ROW_GAP,
         tagCategoryGuid: tag?.categoryGuid,
         tagGuid,
-        tagName: tag?.value || tag?.name || 'Tag'
+        tagName: tag?.value || tag?.name || t('common.tag')
       }
       nodes.push(tagNode)
       excludeTagNodes.push(tagNode)
@@ -428,7 +407,7 @@ function tagNodeH(n: DNode): number {
     const allValues = catTags.map((t) => t.value).filter(Boolean) as string[]
     const isDateCat = cat?.type === 'date' || (allValues.length > 0 && allValues.every((v) => !isNaN(new Date(v.split('/').reverse().join('-')).getTime())))
     const isNumCat = cat?.type === 'numeric' || (!isDateCat && allValues.length > 0 && allValues.every((v) => !isNaN(parseFloat(v))))
-    showModePicker = (isDateCat || isNumCat) && catTags.length > 1
+    showModePicker = (isDateCat || isNumCat) && catTags.length > (isDateCat ? 0 : 1)
   } else if (n.betweenMode !== undefined) {
     // Fallback: use betweenMode as a hint
     showModePicker = true
@@ -540,7 +519,7 @@ function collectFilterTags(nodes: DNode[], conns: DConn[]): { include: string[];
  *  trailing "+N more" so a big respondent group doesn't flood the panel. */
 function scopeListItems(items: string[], max = 50): string[] {
   if (items.length <= max) return items
-  return [...items.slice(0, max), `+${items.length - max} more`]
+  return [...items.slice(0, max), t('docSelector.more', { count: items.length - max })]
 }
 
 interface Props {
@@ -569,6 +548,7 @@ export function DocumentSelector({
   sources, tags, categories, folders, sourceFolder = {}, tagMembers = {},
   respondentTagMembers = {}, questionTagMembers = {}, surveyEntityLabels = {}, filter, onChange
 }: Props) {
+  const { t } = useTranslation()
   const canvasRef = useRef<HTMLDivElement>(null)
   const wireRef = useRef<SVGPathElement>(null)
   // Update module-level context so nodeH can compute accurate tag node heights
@@ -737,9 +717,9 @@ export function DocumentSelector({
       // handler steals the key from those editors app-wide.
       if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable) return
       if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); doDelete() }
-      if ((e.metaKey || e.ctrlKey) && e.key === 'c') doCopy()
-      if ((e.metaKey || e.ctrlKey) && e.key === 'v') doPaste()
-      if ((e.metaKey || e.ctrlKey) && e.key === 'a') {
+      if ((e.metaKey || e.ctrlKey) && isLetterKey(e, 'c')) doCopy()
+      if ((e.metaKey || e.ctrlKey) && isLetterKey(e, 'v')) doPaste()
+      if ((e.metaKey || e.ctrlKey) && isLetterKey(e, 'a')) {
         e.preventDefault()
         setSelNodes(new Set(nodesRef.current.map((n) => n.id)))
       }
@@ -1031,7 +1011,7 @@ export function DocumentSelector({
             const vals = tagCatTags.map((t) => t.value).filter(Boolean) as string[]
             const isD = tagCat?.type === 'date' || (vals.length > 0 && vals.every((v) => !isNaN(new Date(v.split('/').reverse().join('-')).getTime())))
             const isN = tagCat?.type === 'numeric' || (!isD && vals.length > 0 && vals.every((v) => !isNaN(parseFloat(v))))
-            if ((isD || isN) && tagCatTags.length > 1) autoMode = 'is'
+            if ((isD || isN) && tagCatTags.length > (isD ? 0 : 1)) autoMode = 'is'
           }
           setNodes((p) => [
             ...p,
@@ -1042,7 +1022,7 @@ export function DocumentSelector({
               y: my - 20 + i * 60,
               tagCategoryGuid: tag?.categoryGuid,
               tagGuid: guid,
-              tagName: tag?.value || tag?.name || 'Tag',
+              tagName: tag?.value || tag?.name || t('common.tag'),
               betweenMode: autoMode
             }
           ])
@@ -1094,7 +1074,7 @@ export function DocumentSelector({
     }
     // Stable per-level sort by name so siblings are alphabetical.
     for (const list of byParent.values()) {
-      list.sort((a, b) => a.name.localeCompare(b.name))
+      list.sort((a, b) => compareText(a.name, b.name))
     }
     const walk = (parent: string | null, depth: number): void => {
       const children = byParent.get(parent) ?? []
@@ -1139,13 +1119,12 @@ export function DocumentSelector({
       for (const r of (respondentTagMembers[tg] || [])) respIds.get(r.sourceGuid)?.delete(r.id)
       for (const q of (questionTagMembers[tg] || [])) questIds.get(q.sourceGuid)?.delete(q.id)
     }
-    const collate = (Intl as any).Collator ? new Intl.Collator(undefined, { numeric: true }) : null
-    const sortNames = (a: string[]) => collate ? a.sort((x, y) => collate.compare(x, y)) : a.sort()
+    const sortNames = (a: string[]) => a.sort(compareText)
     const sgs = new Set<string>([...respIds.keys(), ...questIds.keys()])
     for (const sg of sgs) {
       const labels = surveyEntityLabels[sg] || { respondents: {}, questions: {} }
-      const rNames = [...(respIds.get(sg) || [])].map((id) => labels.respondents[id] || 'Respondent')
-      const qNames = [...(questIds.get(sg) || [])].map((id) => labels.questions[id] || 'Question')
+      const rNames = [...(respIds.get(sg) || [])].map((id) => labels.respondents[id] || t('docSelector.respondent'))
+      const qNames = [...(questIds.get(sg) || [])].map((id) => labels.questions[id] || t('docSelector.question'))
       result.set(sg, { respondents: sortNames(rNames), questions: sortNames(qNames) })
     }
     return result
@@ -1167,44 +1146,44 @@ export function DocumentSelector({
           shared PaletteGroup + PaletteButton + PaletteDivider helpers
           so the look matches the Content Query palette exactly. */}
       <div style={{ display: 'flex', gap: 14, marginBottom: 8, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-        <PaletteGroup label="Input">
+        <PaletteGroup label={t('queryBuilder.paletteInput')}>
           <PaletteButton
             kind="docs"
-            label={KIND_LABEL.docs}
+            label={kindLabel('docs')}
             color={KIND_COLOR.docs}
-            tooltip={KIND_TOOLTIP.docs}
+            tooltip={kindTooltip('docs')}
             dragMimeType="application/x-magnolia-ds-node"
             onClick={() => addNode('docs', { docGuids: [] })}
           />
           <PaletteButton
             kind="tag"
-            label={KIND_LABEL.tag}
+            label={kindLabel('tag')}
             color={KIND_COLOR.tag}
-            tooltip={KIND_TOOLTIP.tag}
+            tooltip={kindTooltip('tag')}
             dragMimeType="application/x-magnolia-ds-node"
             onClick={() => addNode('tag')}
           />
           <PaletteButton
             kind="type"
-            label={KIND_LABEL.type}
+            label={kindLabel('type')}
             color={KIND_COLOR.type}
-            tooltip={KIND_TOOLTIP.type}
+            tooltip={kindTooltip('type')}
             dragMimeType="application/x-magnolia-ds-node"
             onClick={() => addNode('type')}
           />
           <PaletteButton
             kind="folder"
-            label={KIND_LABEL.folder}
+            label={kindLabel('folder')}
             color={KIND_COLOR.folder}
-            tooltip={KIND_TOOLTIP.folder}
+            tooltip={kindTooltip('folder')}
             dragMimeType="application/x-magnolia-ds-node"
             onClick={() => addNode('folder')}
           />
           <PaletteButton
             kind="allDocs"
-            label={KIND_LABEL.allDocs}
+            label={kindLabel('allDocs')}
             color={KIND_COLOR.allDocs}
-            tooltip={KIND_TOOLTIP.allDocs}
+            tooltip={kindTooltip('allDocs')}
             dragMimeType="application/x-magnolia-ds-node"
             onClick={() => addNode('allDocs')}
           />
@@ -1212,12 +1191,12 @@ export function DocumentSelector({
 
         <PaletteDivider />
 
-        <PaletteGroup label="Logical">
+        <PaletteGroup label={kindLabel('setOp')}>
           <PaletteButton
             kind="setOp"
-            label={KIND_LABEL.setOp}
+            label={kindLabel('setOp')}
             color={KIND_COLOR.setOp}
-            tooltip={KIND_TOOLTIP.setOp}
+            tooltip={kindTooltip('setOp')}
             dragMimeType="application/x-magnolia-ds-node"
             onClick={() => addNode('setOp', { setOps: [undefined] })}
           />
@@ -1306,22 +1285,22 @@ export function DocumentSelector({
             if (!conn) return null
             const src = nodes.find((n) => n.id === conn.from)
             if (!src) return null
-            if (src.kind === 'docs') return `${src.docGuids?.length || 0} doc(s)`
-            if (src.kind === 'tag') return src.tagName || 'Tag'
-            if (src.kind === 'type') return src.typeExt ? CATEGORY_LABELS[src.typeExt as DocCategory] : 'Type'
+            if (src.kind === 'docs') return t('queryDesc.docs', { count: src.docGuids?.length || 0 })
+            if (src.kind === 'tag') return src.tagName || t('common.tag')
+            if (src.kind === 'type') return src.typeExt ? categoryLabel(src.typeExt as DocCategory) : kindLabel('type')
             if (src.kind === 'folder') {
               const fname = folders.find((f) => f.guid === src.folderGuid)?.name
-              return fname || 'Folder'
+              return fname || kindLabel('folder')
             }
-            if (src.kind === 'allDocs') return 'All Docs'
-            if (src.kind === 'setOp') return 'Set input'
-            return 'Input'
+            if (src.kind === 'allDocs') return t('docSelector.allDocsPort')
+            if (src.kind === 'setOp') return t('docSelector.setInput')
+            return t('queryBuilder.input')
           }
 
           return (
             <div
               key={node.id}
-              title={KIND_TOOLTIP[node.kind]}
+              title={kindTooltip(node.kind)}
               onMouseDown={(e) => nodeDown(e, node.id)}
               onClick={(e) => e.stopPropagation()}
               style={{
@@ -1332,9 +1311,9 @@ export function DocumentSelector({
                 height: h,
                 borderRadius: 'var(--radius-sm)',
                 borderTop: `3px solid ${color}`,
-                borderRight: `1.5px solid ${selected ? color : 'var(--border-color)'}`,
+                borderInlineEnd: `1.5px solid ${selected ? color : 'var(--border-color)'}`,
                 borderBottom: `1.5px solid ${selected ? color : 'var(--border-color)'}`,
-                borderLeft: `1.5px solid ${selected ? color : 'var(--border-color)'}`,
+                borderInlineStart: `1.5px solid ${selected ? color : 'var(--border-color)'}`,
                 background: 'var(--bg-panel)',
                 boxShadow: selected
                   ? `0 0 0 2px ${color}44, 0 2px 8px rgba(0,0,0,0.15)`
@@ -1359,7 +1338,7 @@ export function DocumentSelector({
                 gap: 4
               }}>
                 {node.kind === 'result' && <span style={{ color: KIND_COLOR.result }}>&#9654;</span>}
-                {KIND_LABEL[node.kind]}
+                {kindLabel(node.kind)}
               </div>
 
               {/* Docs node: list + drop zone */}
@@ -1373,7 +1352,7 @@ export function DocumentSelector({
                       display: 'flex', alignItems: 'center', justifyContent: 'space-between'
                     }}>
                       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {sourceMap.get(guid) || '(deleted document)'}
+                        {sourceMap.get(guid) || t('docSelector.deletedDocument')}
                       </span>
                       <span
                         onMouseDown={(e) => e.stopPropagation()}
@@ -1385,7 +1364,7 @@ export function DocumentSelector({
                               : nd
                           ))
                         }}
-                        style={{ fontSize: 9, color: 'var(--text-muted)', cursor: 'pointer', flexShrink: 0, marginLeft: 2 }}
+                        style={{ fontSize: 9, color: 'var(--text-muted)', cursor: 'pointer', flexShrink: 0, marginInlineStart: 2 }}
                       >
                         <Icon icon={faXmark} />
                       </span>
@@ -1393,7 +1372,7 @@ export function DocumentSelector({
                   ))}
                   {(node.docGuids?.length || 0) > MAX_VISIBLE_DOCS && (
                     <div style={{ fontSize: 8, color: 'var(--text-muted)', padding: '0 6px', height: 14, lineHeight: '14px' }}>
-                      +{(node.docGuids?.length || 0) - MAX_VISIBLE_DOCS} more
+                      {t('docSelector.more', { count: (node.docGuids?.length || 0) - MAX_VISIBLE_DOCS })}
                     </div>
                   )}
                   <div
@@ -1432,7 +1411,7 @@ export function DocumentSelector({
                       borderTop: '1px dashed var(--border-color)', margin: '0 4px'
                     }}
                   >
-                    {(node.docGuids?.length || 0) === 0 ? 'Drop docs here' : '+ Drop more'}
+                    {(node.docGuids?.length || 0) === 0 ? t('docSelector.dropDocsHere') : t('docSelector.dropMore')}
                   </div>
                 </div>
               )}
@@ -1445,17 +1424,102 @@ export function DocumentSelector({
                 // when the dropdown visually shows a category but state hasn't been set)
                 const effectiveCatGuid = node.tagCategoryGuid
                   || (uncatTags.length === 0 && categories.length > 0 ? categories[0].guid : undefined)
-                const catTags = effectiveCatGuid
+                const unsortedCatTags = effectiveCatGuid
                   ? tags.filter((t) => t.categoryGuid === effectiveCatGuid)
                   : []
-                const valueTags = effectiveCatGuid ? catTags : uncatTags
                 const cat = effectiveCatGuid ? categories.find((c) => c.guid === effectiveCatGuid) : null
                 // Determine if all values in this category are numeric or dates
-                const allValues = catTags.map((t) => t.value).filter(Boolean) as string[]
+                const allValues = unsortedCatTags.map((t) => t.value).filter(Boolean) as string[]
                 const isDateCat = cat?.type === 'date' || (allValues.length > 0 && allValues.every((v) => !isNaN(new Date(v.split('/').reverse().join('-')).getTime())))
+                // Dates are listed newest first.
+                const catTags = isDateCat
+                  ? [...unsortedCatTags].sort((a, b) => newestFirst(a.value || a.name, b.value || b.name))
+                  : unsortedCatTags
+                const valueTags = effectiveCatGuid ? catTags : uncatTags
                 const isNumCat = cat?.type === 'numeric' || (!isDateCat && allValues.length > 0 && allValues.every((v) => !isNaN(parseFloat(v))))
-                const showModePicker = effectiveCatGuid && (isDateCat || isNumCat) && catTags.length > 1
+                const showModePicker = effectiveCatGuid && (isDateCat || isNumCat) && catTags.length > (isDateCat ? 0 : 1)
                 const mode = node.betweenMode || 'is'
+                const dateRange = isDateCat && (mode === 'between' || mode === 'not-between')
+                // A range's ends: as typed, else the dates picked before typing existed.
+                const tagValue = (g?: string) => (g ? tags.find((tg) => tg.guid === g)?.value ?? '' : '')
+                const rangeFrom = node.rangeFrom ?? tagValue(node.tagGuid)
+                const rangeTo = node.rangeTo ?? tagValue(node.tagGuid2)
+                const dateOptions = [...new Set(catTags.map((tg) => tg.value).filter((v): v is string => !!v && !!dateSpan(v)))]
+                const setRange = (end: 'from' | 'to', value: string) => {
+                  const from = end === 'from' ? value : rangeFrom
+                  const to = end === 'to' ? value : rangeTo
+                  setNodes((p) => p.map((nd) =>
+                    nd.id === node.id ? {
+                      ...nd,
+                      rangeFrom: from,
+                      rangeTo: to,
+                      tagGuid: undefined,
+                      tagGuid2: undefined,
+                      tagName: `${from.trim() || '…'} – ${to.trim() || '…'}`,
+                      tagCategoryGuid: nd.tagCategoryGuid || effectiveCatGuid
+                    } : nd
+                  ))
+                }
+                // A date in three boxes. The value is kept the way date tags
+                // write it: dd/mm/yyyy, mm/yyyy or yyyy.
+                const dateParts = (v: string): [string, string, string] => {
+                  const p = v.trim().split('/')
+                  return p.length >= 3 ? [p[0], p[1], p[2]] : p.length === 2 ? ['', p[0], p[1]] : ['', '', p[0]]
+                }
+                const joinDate = ([d, m, y]: [string, string, string]) => (d ? `${d}/${m}/${y}` : m ? `${m}/${y}` : y)
+                const rangeField = (end: 'from' | 'to') => {
+                  const value = end === 'from' ? rangeFrom : rangeTo
+                  const parts = dateParts(value)
+                  // Red once the year is in and it still isn't a date.
+                  const bad = parts[2].length === 4 && !dateSpan(value)
+                  const box = (i: 0 | 1 | 2) => (
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={i === 2 ? 4 : 2}
+                      value={parts[i]}
+                      placeholder={t(i === 0 ? 'docSelector.dayShort' : i === 1 ? 'docSelector.monthShort' : 'docSelector.yearShort')}
+                      aria-label={t(i === 0 ? 'docSelector.day' : i === 1 ? 'docSelector.month' : 'docSelector.year')}
+                      title={bad ? t('docSelector.notADate') : undefined}
+                      aria-invalid={bad || undefined}
+                      onChange={(e) => {
+                        const digits = e.target.value.replace(/\D/g, '')
+                        const next: [string, string, string] = [...parts]
+                        next[i] = digits
+                        setRange(end, joinDate(next))
+                        // On to the next box once this one is full.
+                        if (i < 2 && digits.length === 2) (e.target.nextElementSibling as HTMLInputElement | null)?.focus()
+                      }}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClick={(e) => e.stopPropagation()}
+                      style={{
+                        ...selectStyle, height: 18, boxSizing: 'border-box', textAlign: 'center', padding: '2px 1px',
+                        ...(i === 2 ? { flex: 1, minWidth: 0 } : { width: 28, flex: 'none' }),
+                        ...(bad ? { borderColor: '#f43f5e' } : {})
+                      }}
+                    />
+                  )
+                  return (
+                    <div style={{ display: 'flex', gap: 2, marginTop: end === 'from' ? 3 : 2 }}>
+                      {box(0)}
+                      {box(1)}
+                      {box(2)}
+                      <select
+                        value=""
+                        aria-label={t('docSelector.pickDate')}
+                        title={t('docSelector.pickDate')}
+                        disabled={dateOptions.length === 0}
+                        onChange={(e) => { if (e.target.value) setRange(end, e.target.value) }}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onClick={(e) => e.stopPropagation()}
+                        style={{ ...selectStyle, width: 22, flex: 'none', padding: '2px 0' }}
+                      >
+                        <option value="" disabled>{t('docSelector.pickDate')}</option>
+                        {dateOptions.map((v) => <option key={v} value={v}>{v}</option>)}
+                      </select>
+                    </div>
+                  )
+                }
                 const selectStyle: React.CSSProperties = {
                   width: '100%', fontSize: 9, padding: '2px 4px',
                   border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)',
@@ -1502,7 +1566,7 @@ export function DocumentSelector({
                           const vals = newCatTags.map((t) => t.value).filter(Boolean) as string[]
                           const isD = newCat?.type === 'date' || (vals.length > 0 && vals.every((v) => !isNaN(new Date(v.split('/').reverse().join('-')).getTime())))
                           const isN = newCat?.type === 'numeric' || (!isD && vals.length > 0 && vals.every((v) => !isNaN(parseFloat(v))))
-                          if ((isD || isN) && newCatTags.length > 1) newMode = 'is'
+                          if ((isD || isN) && newCatTags.length > (isD ? 0 : 1)) newMode = 'is'
                         }
                         setNodes((p) => p.map((nd) =>
                           nd.id === node.id ? {
@@ -1511,6 +1575,8 @@ export function DocumentSelector({
                             tagGuid: undefined,
                             tagName: undefined,
                             tagGuid2: undefined,
+                            rangeFrom: undefined,
+                            rangeTo: undefined,
                             betweenMode: newMode
                           } : nd
                         ))
@@ -1520,27 +1586,36 @@ export function DocumentSelector({
                       style={selectStyle}
                     >
                       {categories.length > 0 && (
-                        <option value="" disabled>Select category...</option>
+                        <option value="" disabled>{t('docSelector.selectCategory')}</option>
                       )}
                       {categories.map((c) => (
                         <option key={c.guid} value={c.guid}>{c.name}</option>
                       ))}
                       {uncatTags.length > 0 && (
-                        <option value="__uncat__">Uncategorised</option>
+                        <option value="__uncat__">{t('docSelector.uncategorised')}</option>
                       )}
                     </select>
 
                     {/* 2. Mode: Is / Between / Not Between (only for date/number categories) */}
                     {showModePicker && (
                       <div style={{ display: 'flex', gap: 2, marginTop: 3 }}>
-                        {modeBtn('is', 'Is', '#6366f1')}
-                        {modeBtn('between', 'Between', '#6366f1')}
-                        {modeBtn('not-between', 'Not Between', '#f43f5e')}
+                        {modeBtn('is', t('docSelector.mode.is'), '#6366f1')}
+                        {modeBtn('between', t('docSelector.mode.between'), '#6366f1')}
+                        {modeBtn('not-between', t('docSelector.mode.notBetween'), '#f43f5e')}
                       </div>
                     )}
 
+                    {/* 3–4. A date range: typed, or picked from the category's dates */}
+                    {dateRange && (
+                      <>
+                        {rangeField('from')}
+                        <div style={{ textAlign: 'center', fontSize: 8, color: 'var(--text-muted)', fontStyle: 'italic', marginTop: 2, lineHeight: '12px' }}>{t('docSelector.and')}</div>
+                        {rangeField('to')}
+                      </>
+                    )}
+
                     {/* 3. Value 1 */}
-                    <select
+                    {!dateRange && <select
                       value={node.tagGuid || ''}
                       onChange={(e) => {
                         const val = e.target.value
@@ -1549,7 +1624,7 @@ export function DocumentSelector({
                           nd.id === node.id ? {
                             ...nd,
                             tagGuid: val || undefined,
-                            tagName: tag?.value || tag?.name || 'Tag',
+                            tagName: tag?.value || tag?.name || t('common.tag'),
                             // Sync the effective category onto the node state
                             tagCategoryGuid: nd.tagCategoryGuid || effectiveCatGuid
                           } : nd
@@ -1559,16 +1634,16 @@ export function DocumentSelector({
                       onClick={(e) => e.stopPropagation()}
                       style={{ ...selectStyle, marginTop: 3 }}
                     >
-                      <option value="">Select value...</option>
+                      <option value="">{t('docSelector.selectValue')}</option>
                       {valueTags.map((t) => (
                         <option key={t.guid} value={t.guid}>{t.value || t.name}</option>
                       ))}
-                    </select>
+                    </select>}
 
                     {/* 4. "and" + Value 2 (only for between / not-between) */}
-                    {(mode === 'between' || mode === 'not-between') && (
+                    {!dateRange && (mode === 'between' || mode === 'not-between') && (
                       <>
-                      <div style={{ textAlign: 'center', fontSize: 8, color: 'var(--text-muted)', fontStyle: 'italic', marginTop: 2, lineHeight: '12px' }}>and</div>
+                      <div style={{ textAlign: 'center', fontSize: 8, color: 'var(--text-muted)', fontStyle: 'italic', marginTop: 2, lineHeight: '12px' }}>{t('docSelector.and')}</div>
                       <select
                         value={node.tagGuid2 || ''}
                         onChange={(e) => {
@@ -1580,7 +1655,7 @@ export function DocumentSelector({
                         onClick={(e) => e.stopPropagation()}
                         style={{ ...selectStyle, marginTop: 2 }}
                       >
-                        <option value="">Select value 2...</option>
+                        <option value="">{t('docSelector.selectValue2')}</option>
                         {catTags.filter((t) => t.guid !== node.tagGuid).map((t) => (
                           <option key={t.guid} value={t.guid}>{t.value || t.name}</option>
                         ))}
@@ -1609,13 +1684,13 @@ export function DocumentSelector({
                       background: 'var(--bg-primary)', color: 'var(--text-primary)', outline: 'none'
                     }}
                   >
-                    <option value="">Select type...</option>
-                    <option value="video">Video</option>
-                    <option value="audio">Audio</option>
-                    <option value="document">Document</option>
-                    <option value="image">Image</option>
-                    <option value="survey">Survey</option>
-                    <option value="note">Notes</option>
+                    <option value="">{t('docSelector.selectType')}</option>
+                    <option value="video">{categoryLabel('video')}</option>
+                    <option value="audio">{categoryLabel('audio')}</option>
+                    <option value="document">{categoryLabel('document')}</option>
+                    <option value="image">{categoryLabel('image')}</option>
+                    <option value="survey">{categoryLabel('survey')}</option>
+                    <option value="note">{categoryLabel('note')}</option>
                   </select>
                 </div>
               )}
@@ -1637,7 +1712,7 @@ export function DocumentSelector({
                       background: 'var(--bg-primary)', color: 'var(--text-primary)', outline: 'none'
                     }}
                   >
-                    <option value="">Select folder...</option>
+                    <option value="">{t('docSelector.selectFolder')}</option>
                     {folderOptions.map((f) => (
                       <option key={f.guid} value={f.guid}>{f.label}</option>
                     ))}
@@ -1657,14 +1732,14 @@ export function DocumentSelector({
                       key={`slot-${i}`}
                       style={{
                         height: SLOT_H, lineHeight: `${SLOT_H}px`,
-                        paddingLeft: PORT_R + 6, fontSize: 9,
+                        paddingInlineStart: PORT_R + 6, fontSize: 9,
                         color: name ? 'var(--text-primary)' : 'var(--text-secondary)',
                         fontWeight: name ? 600 : 400,
                         whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                         pointerEvents: 'none'
                       }}
                     >
-                      {name || `Input ${i + 1}`}
+                      {name || t('queryBuilder.inputN', { n: i + 1 })}
                     </div>
                   )
                   if (i < ops.length) {
@@ -1674,7 +1749,7 @@ export function DocumentSelector({
                       <div key={`op-${i}`} style={{ height: LABEL_H, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
                         <select
                           value={op || ''}
-                          title={op ? SET_OP_TOOLTIP[op] : 'Select an operator'}
+                          title={op ? setOpTooltip(op) : t('queryBuilder.selectOperator')}
                           onChange={(e) => {
                             const val = e.target.value as SetOp | ''
                             setNodes((p) => p.map((nd) => {
@@ -1696,10 +1771,10 @@ export function DocumentSelector({
                             textAlign: 'center', letterSpacing: 0.5, fontStyle: 'italic', outline: 'none'
                           }}
                         >
-                          <option value="" disabled>Operator...</option>
-                          <option value="union">Union (1 + 2)</option>
-                          <option value="intersect">Intersect (1 ∩ 2)</option>
-                          <option value="subtract">Subtract (1 − 2)</option>
+                          <option value="" disabled>{t('queryBuilder.operatorPlaceholder')}</option>
+                          <option value="union">{t('docSelector.opOption.union')}</option>
+                          <option value="intersect">{t('docSelector.opOption.intersect')}</option>
+                          <option value="subtract">{t('docSelector.opOption.subtract')}</option>
                         </select>
                         {ops.length > 1 && (
                           <span
@@ -1744,7 +1819,7 @@ export function DocumentSelector({
                       color: 'var(--accent-primary)', cursor: 'pointer', opacity: 0.7
                     }}
                   >
-                    + Add input...
+                    {t('queryBuilder.addInput')}
                   </div>
                 )
                 return <div>{items}</div>
@@ -1827,7 +1902,7 @@ export function DocumentSelector({
           style={{
             position: 'absolute',
             top: 6,
-            right: 6,
+            insetInlineEnd: 6,
             zIndex: 70,
             fontSize: 10,
             padding: '3px 8px',
@@ -1839,7 +1914,7 @@ export function DocumentSelector({
             opacity: 0.85
           }}
         >
-          Re-centre
+          {t('queryBuilder.recentre')}
         </button>
       </div>
 
@@ -1861,12 +1936,12 @@ export function DocumentSelector({
           background: 'var(--bg-secondary)',
           borderRadius: 'var(--radius-md) var(--radius-md) 0 0'
         }}>
-          Selected Documents
+          {t('docSelector.selectedDocuments')}
         </div>
         <div style={{ flex: 1, overflowY: 'auto', padding: 4 }}>
           {resolvedGuids.length === 0 ? (
             <div className="empty-state" style={{ padding: '8px 6px', fontSize: 10, color: 'var(--text-muted)', fontStyle: 'italic' }}>
-              No documents selected. Connect nodes to Result.
+              {t('docSelector.noneSelected')}
             </div>
           ) : (
             <>
@@ -1885,13 +1960,13 @@ export function DocumentSelector({
                         textOverflow: 'ellipsis'
                       }}
                     >
-                      {sourceMap.get(guid) || '(deleted document)'}
+                      {sourceMap.get(guid) || t('docSelector.deletedDocument')}
                     </div>
                     {surveyEntityLabels[guid] && (['questions', 'respondents'] as const).map((kind) => (
                       <SurveyScopeLine
                         key={kind}
                         kind={kind}
-                        surveyName={sourceMap.get(guid) || 'Survey'}
+                        surveyName={sourceMap.get(guid) || t('docSelector.survey')}
                         labels={surveyEntityLabels[guid][kind]}
                         chosen={chosenIds(kind === 'questions' ? questionScope : respondentScope, guid)}
                         onChange={(ids) => setSurveyScope(kind, guid, ids)}
@@ -1902,17 +1977,17 @@ export function DocumentSelector({
                       <div style={{ padding: '1px 6px 0 16px', fontSize: 9, color: 'var(--text-muted)', lineHeight: 1.5, whiteSpace: 'normal' }}>
                         {scope!.respondents.length > 0 && (
                           <div>
-                            <div style={{ fontWeight: 600 }}>Respondents ({scope!.respondents.length}):</div>
+                            <div style={{ fontWeight: 600 }}>{t('map.sectionRespondents', { count: scope!.respondents.length })}:</div>
                             {scopeListItems(scope!.respondents).map((label, i) => (
-                              <div key={i} style={{ paddingLeft: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>• {label}</div>
+                              <div key={i} style={{ paddingInlineStart: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>• {label}</div>
                             ))}
                           </div>
                         )}
                         {scope!.questions.length > 0 && (
                           <div style={{ marginTop: scope!.respondents.length > 0 ? 2 : 0 }}>
-                            <div style={{ fontWeight: 600 }}>Questions ({scope!.questions.length}):</div>
+                            <div style={{ fontWeight: 600 }}>{t('map.sectionQuestions', { count: scope!.questions.length })}:</div>
                             {scopeListItems(scope!.questions).map((label, i) => (
-                              <div key={i} style={{ paddingLeft: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>• {label}</div>
+                              <div key={i} style={{ paddingInlineStart: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>• {label}</div>
                             ))}
                           </div>
                         )}
@@ -1922,7 +1997,7 @@ export function DocumentSelector({
                 )
               })}
               <div style={{ padding: '4px 6px', fontSize: 9, color: 'var(--text-muted)', borderTop: '1px solid var(--border-color)', marginTop: 4 }}>
-                {resolvedGuids.length} document{resolvedGuids.length !== 1 ? 's' : ''}
+                {t('results.documentCount', { count: resolvedGuids.length })}
               </div>
             </>
           )}
@@ -1933,8 +2008,8 @@ export function DocumentSelector({
       {/* ── Status bar ── */}
       <div style={{ marginTop: 6, fontSize: 10, color: 'var(--text-muted)' }}>
         {selNodes.size > 1
-          ? `${selNodes.size} selected — ${modKey('C')} copy · ${modKey('V')} paste · Delete to remove`
-          : 'Drag documents & tags onto canvas · Connect nodes to Result · Drag survey questions & respondents here to choose them'}
+          ? t('queryBuilder.statusSelected', { count: selNodes.size, copy: modKey('C'), paste: modKey('V') })
+          : t('docSelector.statusHint')}
       </div>
     </div>
   )

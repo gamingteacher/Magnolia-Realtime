@@ -23,6 +23,8 @@ import { formatTime, clamp, snapTimeToSecond, DEFAULT_PX_PER_SECOND } from './vi
 import { decodePeaks } from '../../utils/waveform-peaks'
 import { useRememberedPlayhead } from '../../utils/use-remembered-playhead'
 import type { TextSource, VideoFormatData } from '../../models/types'
+import { useTranslation } from 'react-i18next'
+import { keyCombo } from '../../utils/keys'
 
 interface Props {
   source: TextSource
@@ -34,18 +36,8 @@ const SPEED_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2]
  *  reasonable default that works well for most video. */
 const FRAME_STEP_SECONDS = 1 / 30
 
-function keyComboFromEvent(e: KeyboardEvent): string {
-  const parts: string[] = []
-  if (e.ctrlKey) parts.push('Ctrl')
-  if (e.altKey) parts.push('Alt')
-  if (e.shiftKey) parts.push('Shift')
-  if (e.metaKey) parts.push('Cmd')
-  if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) return ''
-  parts.push(e.key.length === 1 ? e.key.toUpperCase() : e.key)
-  return parts.join('+')
-}
-
 export function VideoDocumentViewer({ source, content }: Props) {
+  const { t } = useTranslation()
   const videoRef = useRef<HTMLVideoElement>(null)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
@@ -244,7 +236,7 @@ export function VideoDocumentViewer({ source, content }: Props) {
     // configured mapping (rather than the focus target) lets unrelated
     // typing pass through while real shortcuts still fire.
     const handler = (e: KeyboardEvent) => {
-      const combo = keyComboFromEvent(e)
+      const combo = keyCombo(e)
       if (!combo) return
       if (combo === footPedalMappings.playPause) { e.preventDefault(); togglePlayPause() }
       else if (combo === footPedalMappings.rewind) { e.preventDefault(); rewind(footPedalMappings.rewindSeconds) }
@@ -364,14 +356,14 @@ export function VideoDocumentViewer({ source, content }: Props) {
           onMouseDown={() => startHold(() => rewind(2))}
           onMouseUp={stopHold}
           onMouseLeave={stopHold}
-          title="Rewind (hold to repeat)"
+          title={t('media.rewind')}
         >
           <Icon icon={faBackward} />
         </button>
         <button
           style={buttonStyle(isPlaying)}
           onClick={togglePlayPause}
-          title={isPlaying ? 'Pause' : 'Play'}
+          title={isPlaying ? t('media.pause') : t('media.play')}
         >
           <Icon icon={isPlaying ? faPause : faPlay} />
         </button>
@@ -380,7 +372,7 @@ export function VideoDocumentViewer({ source, content }: Props) {
           onMouseDown={() => startHold(() => fastForward(2))}
           onMouseUp={stopHold}
           onMouseLeave={stopHold}
-          title="Fast Forward (hold to repeat)"
+          title={t('media.fastForward')}
         >
           <Icon icon={faForward} />
         </button>
@@ -406,7 +398,7 @@ export function VideoDocumentViewer({ source, content }: Props) {
         <button
           style={buttonStyle(false)}
           onClick={() => setMuted((m) => !m)}
-          title={muted ? 'Unmute' : 'Mute'}
+          title={muted ? t('media.unmute') : t('media.mute')}
         >
           <Icon icon={faVolumeXmark} />
         </button>
@@ -419,7 +411,7 @@ export function VideoDocumentViewer({ source, content }: Props) {
             setVolume((v) => Math.max(0, v - 0.1))
             if (muted) setMuted(false)
           }}
-          title="Volume down"
+          title={t('media.volumeDown')}
         >
           <Icon icon={faVolumeLow} />
         </button>
@@ -435,7 +427,7 @@ export function VideoDocumentViewer({ source, content }: Props) {
             if (muted && parseFloat(e.target.value) > 0) setMuted(false)
           }}
           style={{ width: 70, flexShrink: 0, ['--filled' as any]: `${(muted ? 0 : volume) * 100}%` }}
-          title="Volume"
+          title={t('media.volume')}
         />
         <button
           style={{ ...buttonStyle(false), border: 'none', background: 'transparent', width: 20 }}
@@ -443,7 +435,7 @@ export function VideoDocumentViewer({ source, content }: Props) {
             setVolume((v) => Math.min(1, v + 0.1))
             if (muted) setMuted(false)
           }}
-          title="Volume up"
+          title={t('media.volumeUp')}
         >
           <Icon icon={faVolumeHigh} />
         </button>

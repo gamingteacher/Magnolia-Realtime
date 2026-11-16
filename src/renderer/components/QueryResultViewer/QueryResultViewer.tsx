@@ -1,3 +1,4 @@
+import { formatDateTime } from '../../i18n'
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
@@ -13,6 +14,7 @@ import { EditableTitleSuffix } from '../EditableTitleSuffix'
 import { QueryResultsBody, groupByDocument } from './QueryResultsBody'
 import { QueryLoadingBar } from './QueryLoadingBar'
 import { exportPdfWithHeader, buildPdfDocument, escHtml } from '../../utils/pdf-export'
+import { useTranslation } from 'react-i18next'
 
 interface Props {
   onSaveQuery?: () => void
@@ -37,6 +39,7 @@ interface Props {
 
 
 export function QueryResultViewer({ onSaveQuery, onEditQuery, queryName, onCodeAllNewCode, onApplyCodeToResults, onPopOut, onClose, sidebar, sidebarDefaultSize = 18, sidebarMinSize = 10, sidebarMaxSize = 40 }: Props) {
+  const { t } = useTranslation()
   const results = useQueryStore((s) => s.results)
   const isActive = useQueryStore((s) => s.isActive)
   const isLoading = useQueryStore((s) => s.isLoading)
@@ -173,8 +176,8 @@ export function QueryResultViewer({ onSaveQuery, onEditQuery, queryName, onCodeA
 
   const handleExportPdf = useCallback(async () => {
     if (groups.length === 0) return
-    const title = queryName || 'Query Results'
-    const now = new Date().toLocaleString()
+    const title = queryName || t('results.title')
+    const now = formatDateTime(new Date())
 
     // Pre-render thumbnails for any region-based results so they can be
     // embedded as data-URL <img> tags in the exported HTML.
@@ -219,10 +222,10 @@ export function QueryResultViewer({ onSaveQuery, onEditQuery, queryName, onCodeA
     let body = ''
     for (const group of groups) {
       body += `<div class="doc-group">`
-      body += `<h2>${escHtml(group.sourceName)} <span class="count">(${group.results.length} match${group.results.length !== 1 ? 'es' : ''})</span></h2>`
+      body += `<h2>${escHtml(group.sourceName)} <span class="count">(${escHtml(t('results.matchCount', { count: group.results.length }))})</span></h2>`
       for (const r of group.results) {
         const codes = r.matchedCodes.map((c) =>
-          `<span class="code-badge" style="border-left:3px solid ${c.color || '#888'}">${escHtml(c.name)}</span>`
+          `<span class="code-badge" style="border-inline-start:3px solid ${c.color || '#888'}">${escHtml(c.name)}</span>`
         ).join(' ')
         const highlight = r.matchedCodes[0]?.color
           ? `background:${r.matchedCodes[0].color}40`
@@ -236,7 +239,7 @@ export function QueryResultViewer({ onSaveQuery, onEditQuery, queryName, onCodeA
           const src = sources.find((s) => s.guid === r.sourceGuid) as any
           const isImageSrc = src?.sourceType === 'image'
           body += `<div class="context"><img src="${thumbUrl}" class="region-thumb" />`
-          if (pg && !isImageSrc) body += `<div class="region-caption">Page ${pg}</div>`
+          if (pg && !isImageSrc) body += `<div class="region-caption">${escHtml(t('results.page', { page: pg }))}</div>`
           body += `</div></div>`
           continue
         }
@@ -263,8 +266,8 @@ export function QueryResultViewer({ onSaveQuery, onEditQuery, queryName, onCodeA
   h2 .count { font-weight: 400; color: #888; font-size: 11px; }
   .result { padding: 5px 8px 5px 14px; border-bottom: 1px solid #eee; }
   .codes { margin-bottom: 3px; }
-  .code-badge { display: inline-block; font-size: 10px; padding: 1px 6px; margin-right: 4px; background: #f3f4f6; border-radius: 3px; }
-  .context { white-space: pre-wrap; }
+  .code-badge { display: inline-block; font-size: 10px; padding: 1px 6px; margin-inline-end: 4px; background: #f3f4f6; border-radius: 3px; }
+  .context { white-space: pre-wrap; unicode-bidi: plaintext; }
   mark { border-radius: 2px; padding: 1px 2px; font-weight: 600; }
   .region-thumb { display: block; max-width: 380px; max-height: 260px; border: 1px solid #ddd; border-radius: 3px; }
   .region-caption { font-size: 10px; color: #888; margin-top: 2px; }
@@ -272,12 +275,12 @@ export function QueryResultViewer({ onSaveQuery, onEditQuery, queryName, onCodeA
 
     const html = buildPdfDocument({
       title,
-      subtitle: `${results.length} match${results.length !== 1 ? 'es' : ''} in ${groups.length} document${groups.length !== 1 ? 's' : ''} &mdash; exported ${escHtml(now)}`,
+      subtitle: escHtml(t('results.pdfSubtitle', { matches: t('results.matchCount', { count: results.length }), documents: t('results.documentCount', { count: groups.length }), date: now })),
       body,
       extraCss
     })
 
-    const safeName = (queryName || 'Query Results').replace(/[^a-zA-Z0-9 _-]/g, '').trim()
+    const safeName = (queryName || t('results.title')).replace(/[^\p{L}\p{N} _-]/gu, '').trim()
     await exportPdfWithHeader(html, safeName)
   }, [groups, results, queryName])
 
@@ -308,9 +311,9 @@ export function QueryResultViewer({ onSaveQuery, onEditQuery, queryName, onCodeA
             with click-to-rename. Mirrors the Tool: Name pattern used
             in the analysis tools, Query Builder, and Relationships
             tool. */}
-        <span>Query{activeSavedQuery ? ':' : ''}</span>
+        <span>{t('queryDesc.query')}{activeSavedQuery ? ':' : ''}</span>
         {activeSavedQuery && (
-          <span style={{ marginLeft: 4 }}>
+          <span style={{ marginInlineStart: 4 }}>
             <EditableTitleSuffix name={activeSavedQuery.name} onRename={handleRenameQuery} />
           </span>
         )}
@@ -320,25 +323,25 @@ export function QueryResultViewer({ onSaveQuery, onEditQuery, queryName, onCodeA
             {results.length > 0 && (
               <button
                 className="secondary"
-                style={{ fontSize: 11, padding: '2px 8px', marginRight: 4 }}
+                style={{ fontSize: 11, padding: '2px 8px', marginInlineEnd: 4 }}
                 onClick={handleSelectDocuments}
                 disabled={isLoading}
-                title="Select all documents and respondents in these results in the Document Browser — then drag a tag onto them to tag all at once"
+                title={t('results.selectDocsTitle')}
               >
-                Select Documents
+                {t('results.selectDocs')}
               </button>
             )}
             {results.length > 0 && (
-              <div style={{ marginRight: 4 }}>
+              <div style={{ marginInlineEnd: 4 }}>
                 <button
                   ref={codeAllBtnRef}
                   className="secondary"
                   style={{ fontSize: 11, padding: '2px 8px' }}
                   onClick={() => setCodeAllMenu(codeAllMenu ? null : 'context')}
                   disabled={isLoading}
-                  title={`Apply a code to all ${results.length} results`}
+                  title={t('results.applyCodeTitle', { count: results.length })}
                 >
-                  Code All ({results.length})
+                  {t('results.codeAll', { count: results.length })}
                 </button>
 
                 {codeAllMenu && popoverPos && createPortal(
@@ -367,7 +370,7 @@ export function QueryResultViewer({ onSaveQuery, onEditQuery, queryName, onCodeA
                           onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-tertiary)'}
                           onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                         >
-                          New Code...
+                          {t('results.newCode')}
                         </div>
                         <div
                           className="context-menu-item"
@@ -376,7 +379,7 @@ export function QueryResultViewer({ onSaveQuery, onEditQuery, queryName, onCodeA
                           onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-tertiary)'}
                           onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                         >
-                          Existing Codes...
+                          {t('results.existingCodes')}
                         </div>
                       </div>
                     )}
@@ -390,7 +393,7 @@ export function QueryResultViewer({ onSaveQuery, onEditQuery, queryName, onCodeA
                         padding: 12,
                         minWidth: 240
                       }}>
-                        <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>Apply Existing Codes</div>
+                        <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>{t('results.applyExisting')}</div>
                         <div
                           onDragOver={(e) => {
                             if (e.dataTransfer.types.includes('application/x-magnolia-code') || e.dataTransfer.types.includes('application/x-magnolia-codes')) {
@@ -416,10 +419,10 @@ export function QueryResultViewer({ onSaveQuery, onEditQuery, queryName, onCodeA
                             justifyContent: 'center'
                           }}
                         >
-                          Drop codes here to apply to all results
+                          {t('results.dropCodes')}
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
-                          <button className="secondary" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => setCodeAllMenu(null)}>Close</button>
+                          <button className="secondary" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => setCodeAllMenu(null)}>{t('common.close')}</button>
                         </div>
                       </div>
                     )}
@@ -430,35 +433,35 @@ export function QueryResultViewer({ onSaveQuery, onEditQuery, queryName, onCodeA
             )}
             {onEditQuery && (
               <button
-                style={{ fontSize: 11, padding: '2px 8px', marginRight: 4 }}
+                style={{ fontSize: 11, padding: '2px 8px', marginInlineEnd: 4 }}
                 className="secondary"
                 onClick={onEditQuery}
               >
-                Edit Query
+                {t('queries.edit')}
               </button>
             )}
             <button
-              style={{ fontSize: 11, padding: '2px 8px', marginRight: 4 }}
+              style={{ fontSize: 11, padding: '2px 8px', marginInlineEnd: 4 }}
               className="secondary"
               onClick={handleExportPdf}
               disabled={isLoading}
-              title="Export results as PDF"
+              title={t('results.exportPdfTitle')}
             >
-              Export PDF
+              {t('common.exportPdf')}
             </button>
             <button
-              style={{ fontSize: 11, padding: '2px 8px', marginRight: 4 }}
+              style={{ fontSize: 11, padding: '2px 8px', marginInlineEnd: 4 }}
               className="secondary"
               onClick={clearQuery}
             >
-              Clear
+              {t('common.clear')}
             </button>
             {isUnsaved && (
               <button
-                style={{ fontSize: 11, padding: '2px 8px', marginRight: 4 }}
+                style={{ fontSize: 11, padding: '2px 8px', marginInlineEnd: 4 }}
                 onClick={onSaveQuery}
               >
-                Save Query
+                {t('queryBuilder.save')}
               </button>
             )}
           </>
@@ -467,7 +470,7 @@ export function QueryResultViewer({ onSaveQuery, onEditQuery, queryName, onCodeA
           <button
             className="panel-header-popout"
             onClick={onPopOut}
-            title="Open query results in a separate window"
+            title={t('results.popOutTitle')}
           >
             <Icon icon={faUpRightFromSquare} />
           </button>
@@ -476,7 +479,7 @@ export function QueryResultViewer({ onSaveQuery, onEditQuery, queryName, onCodeA
           <button
             className="panel-header-close"
             onClick={onClose}
-            title="Close panel"
+            title={t('panel.close')}
           >
             <Icon icon={faXmark} />
           </button>

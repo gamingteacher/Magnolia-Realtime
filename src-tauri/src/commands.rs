@@ -7,6 +7,7 @@
 
 use crate::print;
 use crate::state::AppState;
+use crate::i18n::{t, t_with};
 use crate::storage;
 use crate::windows::{self, MAIN};
 use base64::Engine;
@@ -47,8 +48,8 @@ fn to_path(p: tauri_plugin_dialog::FilePath) -> Option<PathBuf> {
 }
 
 pub fn pick_qdpx(app: &AppHandle, parent: Option<&WebviewWindow>) -> Option<String> {
-    dialog(app, parent, "Open QDPX Project")
-        .add_filter("QDPX Projects", &["qdpx"])
+    dialog(app, parent, &t("dialog.openProject"))
+        .add_filter(t("dialog.qdpxProjects"), &["qdpx"])
         .blocking_pick_file()
         .and_then(to_path)
         .map(|p| p.to_string_lossy().into_owned())
@@ -117,6 +118,19 @@ pub async fn open_project(
 #[tauri::command]
 pub async fn pick_project_file(app: AppHandle, window: WebviewWindow) -> CmdResult<Option<String>> {
     Ok(pick_qdpx(&app, Some(&window)))
+}
+
+/// Several project files at once, for comparing coders' projects.
+#[tauri::command]
+pub async fn pick_project_files(app: AppHandle, window: WebviewWindow) -> CmdResult<Vec<String>> {
+    Ok(dialog(&app, Some(&window), &t("dialog.openProject"))
+        .add_filter(t("dialog.qdpxProjects"), &["qdpx"])
+        .blocking_pick_files()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(to_path)
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect())
 }
 
 #[tauri::command]
@@ -214,6 +228,13 @@ pub async fn check_in_project(
 
 // ── Merge ──
 
+/// The given files that no longer exist (moved, renamed or deleted), so
+/// a saved Inter-coder analysis can warn that a coder's project is missing.
+#[tauri::command]
+pub async fn missing_files(paths: Vec<String>) -> CmdResult<Vec<String>> {
+    Ok(paths.into_iter().filter(|p| !Path::new(p).is_file()).collect())
+}
+
 /// Load a second .qdpx for comparison without touching the active project.
 #[tauri::command]
 pub async fn read_qdpx_for_compare(file_path: String) -> CmdResult<Value> {
@@ -307,14 +328,15 @@ pub async fn save_project(
                 data.project
                     .get("name")
                     .and_then(Value::as_str)
-                    .unwrap_or("Untitled")
+                    .map(str::to_string)
+                    .unwrap_or_else(|| t("dialog.untitled"))
             );
             match save_dialog(
                 &app,
                 &window,
-                "Save QDPX Project",
+                &t("dialog.saveProject"),
                 &name,
-                ("QDPX Projects", &["qdpx"]),
+                (&t("dialog.qdpxProjects"), &["qdpx"]),
             ) {
                 Some(p) => p,
                 None => return Ok(Value::Null),
@@ -349,14 +371,15 @@ pub async fn save_project_as(
         data.project
             .get("name")
             .and_then(Value::as_str)
-            .unwrap_or("Untitled")
+            .map(str::to_string)
+            .unwrap_or_else(|| t("dialog.untitled"))
     );
     let Some(path) = save_dialog(
         &app,
         &window,
-        "Save QDPX Project As",
+        &t("dialog.saveProjectAs"),
         &name,
-        ("QDPX Projects", &["qdpx"]),
+        (&t("dialog.qdpxProjects"), &["qdpx"]),
     ) else {
         return Ok(Value::Null);
     };
@@ -418,16 +441,16 @@ fn new_project_file(
     let Some(path) = save_dialog(
         app,
         parent,
-        "Create New Project",
-        "Untitled.qdpx",
-        ("QDPX Projects", &["qdpx"]),
+        &t("dialog.createProject"),
+        &format!("{}.qdpx", t("dialog.untitled")),
+        (&t("dialog.qdpxProjects"), &["qdpx"]),
     ) else {
         return Ok(None);
     };
     match writer::create_empty_project_file(&path, &app_version(app), &storage::editor_name()) {
         Ok(name) => Ok(Some((path_str(&path), name))),
         Err(e) => {
-            error_box(app, "Failed to create project", &e.to_string());
+            error_box(app, &t("dialog.createProjectFailed"), &e.to_string());
             Ok(None)
         }
     }
@@ -502,8 +525,9 @@ fn ext_of(name: &str) -> String {
     }
 }
 
-/// A PDF-backed document for the renderer: it extracts the text with pdf.js
-/// (`_pendingPdfText`) — the same library its viewer uses, so offsets agree.
+/// A PDF-backed document for the renderer: it reads the text with pdf.js
+/// (`_pendingPdfText`), or from the PDF's own text layer when Magnolia
+/// typeset it — the same reading its viewer uses, so offsets agree.
 fn pdf_doc(name: &str, pdf: &[u8]) -> Value {
     json!({
         "name": name,
@@ -517,15 +541,15 @@ fn pdf_doc(name: &str, pdf: &[u8]) -> Value {
 /// Read one document for import. `bytes` is the file's content (read from
 /// disk, or sent by the renderer for an OS drag-and-drop).
 fn read_document(
-    app: &AppHandle,
     state: &AppState,
     name: &str,
     bytes: Vec<u8>,
 ) -> CmdResult<Value> {
     let ext = ext_of(name);
+    // Office documents are typeset as PDFs that carry their own text layer
+    // (convert::typeset), so their text reads back exactly in any script.
     let office_pdf = |html: Result<String, String>| -> CmdResult<Value> {
-        let doc = convert::html::print_document(&html?);
-        let pdf = print::html_to_pdf(app, &doc, &print::PdfOptions::import())?;
+        let pdf = convert::typeset::html_to_pdf(&html?)?;
         Ok(pdf_doc(name, &pdf))
     };
     match ext.as_str() {
@@ -533,7 +557,7 @@ fn read_document(
         "docx" => office_pdf(convert::docx::docx_to_html(&bytes)),
         "rtf" => office_pdf(convert::rtf::rtf_to_html(&bytes)),
         "odt" => office_pdf(convert::odt::odt_to_html(&bytes)),
-        "doc" => Err("Legacy Microsoft Word .doc files aren't supported. Please open the file in Word and save it as .docx.".into()),
+        "doc" => Err(t("import.legacyDoc")),
         // CSV for the survey importer; the extension stays xlsx so the
         // renderer routes it through the survey import.
         "xlsx" => Ok(json!({ "name": name, "content": convert::xlsx::xlsx_to_csv(&bytes)?, "extension": "xlsx" })),
@@ -577,11 +601,14 @@ fn file_name(p: &Path) -> String {
         .unwrap_or_default()
 }
 
-fn read_document_path(app: &AppHandle, state: &AppState, path: &Path) -> Value {
+fn read_document_path(state: &AppState, path: &Path) -> Value {
     let name = file_name(path);
     match std::fs::read(path)
-        .map_err(|e| e.to_string())
-        .and_then(|b| read_document(app, state, &name, b))
+        .map_err(|e| {
+            log::warn!("could not read {}: {e}", path.display());
+            t("import.unreadable")
+        })
+        .and_then(|b| read_document(state, &name, b))
     {
         Ok(v) => v,
         Err(e) => json!({ "name": name, "error": e }),
@@ -591,24 +618,27 @@ fn read_document_path(app: &AppHandle, state: &AppState, path: &Path) -> Value {
 /// Why a dropped path can't be imported, if it can't.
 fn reject_reason(path: &Path) -> Option<String> {
     if path.is_dir() {
-        return Some("Folders can't be imported. Drop the files inside it instead.".into());
+        return Some(t("import.folder"));
     }
     let ext = ext_of(&file_name(path));
     if ext.is_empty() {
-        return Some("Files without an extension can't be imported.".into());
+        return Some(t("import.noExtension"));
     }
-    (!SUPPORTED.contains(&ext.as_str())).then(|| format!("Magnolia can't import .{ext} files."))
+    (!SUPPORTED.contains(&ext.as_str())).then(|| t_with("import.unsupported", &[("ext", &ext)]))
 }
 
+/// Ask for documents to import. Returns their paths (null if cancelled);
+/// the renderer reads them one at a time with `read_text_files`, so it can
+/// show how the import is going.
 #[tauri::command]
-pub async fn import_text_file(
+pub async fn pick_import_files(
     app: AppHandle,
     window: WebviewWindow,
     state: State<'_, AppState>,
 ) -> CmdResult<Value> {
     let project = state.store.active_project_path();
     let mut d =
-        dialog(&app, Some(&window), "Import Document").add_filter("Supported Documents", SUPPORTED);
+        dialog(&app, Some(&window), &t("dialog.importDocument")).add_filter(t("dialog.supportedDocuments"), SUPPORTED);
     if let Some(dir) = storage::last_import_dir(project.as_deref()) {
         d = d.set_directory(dir);
     }
@@ -621,7 +651,7 @@ pub async fn import_text_file(
     }
     Ok(paths
         .iter()
-        .map(|p| read_document_path(&app, &state, p))
+        .map(|p| p.to_string_lossy().into_owned())
         .collect::<Vec<_>>()
         .into())
 }
@@ -629,7 +659,6 @@ pub async fn import_text_file(
 /// Real filesystem paths (from a native source rather than a browser drop).
 #[tauri::command]
 pub async fn read_text_files(
-    app: AppHandle,
     state: State<'_, AppState>,
     file_paths: Vec<String>,
 ) -> CmdResult<Value> {
@@ -639,7 +668,7 @@ pub async fn read_text_files(
             let p = Path::new(fp);
             match reject_reason(p) {
                 Some(r) => json!({ "name": file_name(p), "error": r }),
-                None => read_document_path(&app, &state, p),
+                None => read_document_path(&state, p),
             }
         })
         .collect::<Vec<_>>()
@@ -651,7 +680,6 @@ pub async fn read_text_files(
 /// the `x-file-name` header (URI-encoded).
 #[tauri::command]
 pub async fn read_dropped_file(
-    app: AppHandle,
     state: State<'_, AppState>,
     request: Request<'_>,
 ) -> CmdResult<Value> {
@@ -665,19 +693,19 @@ pub async fn read_dropped_file(
     let ext = ext_of(&name);
     if ext.is_empty() {
         return Ok(
-            json!({ "name": name, "error": "Files without an extension can't be imported." }),
+            json!({ "name": name, "error": t("import.noExtension") }),
         );
     }
     if !SUPPORTED.contains(&ext.as_str()) {
         return Ok(
-            json!({ "name": name, "error": format!("Magnolia can't import .{ext} files.") }),
+            json!({ "name": name, "error": t_with("import.unsupported", &[("ext", &ext)]) }),
         );
     }
     let bytes = match request.body() {
         InvokeBody::Raw(b) => b.clone(),
         InvokeBody::Json(_) => return Err("expected raw file bytes".into()),
     };
-    Ok(match read_document(&app, &state, &name, bytes) {
+    Ok(match read_document(&state, &name, bytes) {
         Ok(v) => v,
         Err(e) => json!({ "name": name, "error": e }),
     })
@@ -701,7 +729,7 @@ pub async fn reimport_document(
     };
     let project = state.store.active_project_path();
     let mut d =
-        dialog(&app, Some(&window), "Re-import Document").add_filter("Supported Documents", &exts);
+        dialog(&app, Some(&window), &t("dialog.reimportDocument")).add_filter(t("dialog.supportedDocuments"), &exts);
     if let Some(dir) = storage::last_import_dir(project.as_deref()) {
         d = d.set_directory(dir);
     }
@@ -711,7 +739,7 @@ pub async fn reimport_document(
     if let Some(dir) = path.parent() {
         storage::set_last_import_dir(project.as_deref(), dir);
     }
-    let mut doc = read_document_path(&app, &state, &path);
+    let mut doc = read_document_path(&state, &path);
     if let Some(f) = doc.get("formatting").cloned() {
         let handle = f
             .get("videoFilePath")
@@ -738,8 +766,8 @@ pub async fn import_transcript(
     state: State<'_, AppState>,
 ) -> CmdResult<Value> {
     let project = state.store.active_project_path();
-    let mut d = dialog(&app, Some(&window), "Import Transcript").add_filter(
-        "Text Files",
+    let mut d = dialog(&app, Some(&window), &t("dialog.importTranscript")).add_filter(
+        t("dialog.textFiles"),
         &["txt", "md", "markdown", "srt", "vtt", "html", "htm"],
     );
     if let Some(dir) = storage::last_import_dir(project.as_deref()) {
@@ -767,14 +795,11 @@ pub async fn export_pdf(
     header_template: Option<String>,
     footer_template: Option<String>,
 ) -> CmdResult<Option<String>> {
-    let title = dialog_title.unwrap_or_else(|| "Export as PDF".into());
-    let Some(path) = save_dialog(
-        &app,
-        &window,
-        &title,
-        &format!("{default_name}.pdf"),
-        ("PDF Documents", &["pdf"]),
-    ) else {
+    let title = dialog_title.unwrap_or_else(|| t("dialog.exportPdf"));
+    let file_name = format!("{default_name}.pdf");
+    let Some(path) = crate::automation::export_path(&file_name)
+        .or_else(|| save_dialog(&app, &window, &title, &file_name, ("PDF Documents", &["pdf"])))
+    else {
         return Ok(None);
     };
     let opts = print::PdfOptions::export(
@@ -794,7 +819,9 @@ async fn export_text(
     default_name: &str,
     filter: (&str, &[&str]),
 ) -> CmdResult<Option<String>> {
-    let Some(path) = save_dialog(app, window, "Export", default_name, filter) else {
+    let Some(path) = crate::automation::export_path(default_name)
+        .or_else(|| save_dialog(app, window, &t("dialog.export"), default_name, filter))
+    else {
         return Ok(None);
     };
     std::fs::write(&path, content).map_err(|e| e.to_string())?;
@@ -808,7 +835,19 @@ pub async fn export_csv(
     content: String,
     default_name: String,
 ) -> CmdResult<Option<String>> {
-    export_text(&app, &window, &content, &default_name, ("CSV", &["csv"])).await
+    export_text(&app, &window, &with_bom(&content), &default_name, ("CSV", &["csv"])).await
+}
+
+/// CSV text with a UTF-8 byte-order mark in front, which Excel needs to
+/// read it as UTF-8: without one it guesses the system's legacy encoding
+/// and garbles anything beyond Latin letters (Arabic, Chinese, Cyrillic).
+/// Other spreadsheets, R and pandas all accept the mark.
+fn with_bom(content: &str) -> String {
+    if content.starts_with('\u{FEFF}') {
+        content.to_string()
+    } else {
+        format!("\u{FEFF}{content}")
+    }
 }
 
 #[tauri::command]
@@ -831,9 +870,9 @@ pub async fn export_codebook(
     let Some(path) = save_dialog(
         &app,
         &window,
-        "Export Codebook",
-        "Codebook.qdc",
-        ("REFI-QDA Codebook", &["qdc"]),
+        &t("dialog.exportCodebook"),
+        &format!("{}.qdc", t("dialog.codebookFileName")),
+        (&t("dialog.qdcCodebook"), &["qdc"]),
     ) else {
         return Ok(None);
     };
@@ -846,8 +885,8 @@ pub async fn import_codebook(
     app: AppHandle,
     window: WebviewWindow,
 ) -> CmdResult<Option<Vec<Value>>> {
-    let Some(path) = dialog(&app, Some(&window), "Import Codebook")
-        .add_filter("REFI-QDA Codebook", &["qdc"])
+    let Some(path) = dialog(&app, Some(&window), &t("dialog.importCodebook"))
+        .add_filter(t("dialog.qdcCodebook"), &["qdc"])
         .blocking_pick_file()
         .and_then(to_path)
     else {
@@ -899,6 +938,7 @@ pub async fn open_child_window(app: AppHandle, kind: String, data: Value) -> Cmd
         "memos" => windows::open_memos(&app, data),
         "memo-edit" => windows::open_memo(&app, data),
         "query-results" => windows::open_query_results(&app, data),
+        "intercoder-results" => windows::open_intercoder_results(&app, data),
         _ => return Err(format!("unknown window kind {kind}")),
     }
     Ok(())
@@ -907,6 +947,21 @@ pub async fn open_child_window(app: AppHandle, kind: String, data: Value) -> Cmd
 #[tauri::command]
 pub async fn update_query_results_window(app: AppHandle, data: Value) -> CmdResult<()> {
     windows::update_query_results(&app, data);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn update_intercoder_results_window(app: AppHandle, data: Value) -> CmdResult<()> {
+    windows::update_intercoder_results(&app, data);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn close_child_window(app: AppHandle, kind: String) -> CmdResult<()> {
+    match kind.as_str() {
+        "intercoder-results" => windows::close_child(&app, windows::INTERCODER_RESULTS),
+        _ => return Err(format!("unknown window kind {kind}")),
+    }
     Ok(())
 }
 
@@ -1048,7 +1103,7 @@ pub async fn welcome_action(
                 // Validate before leaving the welcome screen.
                 match reader::read_qdpx(Path::new(&path), None) {
                     Ok(_) => windows::open_project_in_main(&app, &path),
-                    Err(e) => error_box(&app, "Failed to open project", &e),
+                    Err(e) => error_box(&app, &t("dialog.openProjectFailed"), &e),
                 }
             }
         }
@@ -1060,10 +1115,8 @@ pub async fn welcome_action(
                 windows::emit_to(&app, window.label(), "recent-projects-changed", ());
                 error_box(
                     &app,
-                    "Project not found",
-                    &format!(
-                        "\"{path}\" no longer exists. It has been removed from Recent Projects."
-                    ),
+                    &t("dialog.projectNotFound"),
+                    &t_with("dialog.projectNotFoundMessage", &[("path", path)]),
                 );
             } else {
                 windows::open_project_in_main(&app, path);
@@ -1098,4 +1151,13 @@ pub async fn preferences_update(app: AppHandle, prefs: Value) -> CmdResult<()> {
 #[tauri::command]
 pub async fn get_app_version(app: AppHandle) -> CmdResult<String> {
     Ok(app_version(&app))
+}
+
+#[cfg(test)]
+mod csv_tests {
+    #[test]
+    fn csv_starts_with_one_bom() {
+        assert_eq!(super::with_bom("a,b"), "\u{FEFF}a,b");
+        assert_eq!(super::with_bom("\u{FEFF}a,b"), "\u{FEFF}a,b");
+    }
 }

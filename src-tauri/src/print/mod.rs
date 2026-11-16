@@ -53,21 +53,6 @@ fn paper(name: &str) -> (f64, f64) {
 }
 
 impl PdfOptions {
-    /// Office documents converted on import.
-    pub fn import() -> Self {
-        let (w, h) = paper("Letter");
-        PdfOptions {
-            page_width: w,
-            page_height: h,
-            margin_top: 0.4,
-            margin_bottom: 0.4,
-            margin_left: 0.4,
-            margin_right: 0.4,
-            header_logo_svg: None,
-            page_numbers: false,
-        }
-    }
-
     /// App exports. With a header/footer the margin doubles as its canvas.
     pub fn export(paper_size: &str, header: Option<&str>, footer: Option<&str>) -> Self {
         let (w, h) = paper(paper_size);
@@ -150,15 +135,15 @@ fn render(
             }
         })
         .build()
-        .map_err(|e| format!("Could not create print window: {e}"))?;
+        .map_err(|e| crate::i18n::t_with("print.noWindow", &[("detail", &e.to_string())]))?;
     let result = (|| {
         loaded_rx
             .recv_timeout(Duration::from_secs(60))
-            .map_err(|_| "Timed out loading the document to print".to_string())?;
+            .map_err(|_| crate::i18n::t("print.timedOut"))?;
         // Let image decodes settle.
         std::thread::sleep(Duration::from_millis(300));
         print_to_file(app, &window, out, opts)?;
-        std::fs::read(out).map_err(|e| format!("Printing produced no PDF: {e}"))
+        std::fs::read(out).map_err(|e| crate::i18n::t_with("print.noPdf", &[("detail", &e.to_string())]))
     })();
     let _ = window.destroy();
     result

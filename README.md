@@ -8,12 +8,12 @@ A fork of [Magnolia](https://github.com/caledavis/Magnolia), the free and open-s
 
 Magnolia stays local-first. Without sync, it works exactly as before: local files and the open QDPX standard. With sync, a team can code the same project at the same time.
 
-Based on Magnolia 2.0 (Tauri 2 + Rust). Released under the European Union Public Licence (EUPL), like the original.
+Based on Magnolia 2.1 (Tauri 2 + Rust). Released under the European Union Public Licence (EUPL), like the original.
 
 
 <p align="center">
-  <img src="screenshot-interface.webp" alt="Magnolia Realtime" width="49%">
-  <img src="screenshot-codedpdf.webp" alt="A coded PDF" width="49%">
+  <img src="screenshot-interface.webp" alt="The Magnolia interface, with a coded interview open" width="49%">
+  <img src="screenshot-codedpdf.webp" alt="A coded PDF in Magnolia" width="49%">
 </p>
 
 ## What this fork adds
@@ -88,7 +88,7 @@ The e2e script reads the Supabase URL and publishable key from the environment (
 
 ## Everything else
 
-All other features (query builder, analysis tools, transcription, video and survey coding, native QDPX support and the supported document types) are inherited unchanged from Magnolia. See the original project for their documentation and for official release downloads.
+The query builder, analysis tools, transcription, video and survey coding, native QDPX support and supported document types come from Magnolia, and are updated with upstream releases. See the original project manual for documentation; download this fork from its Releases page.
 
 ## Known limitations
 
@@ -101,4 +101,121 @@ Push a `v*` tag. The Release workflow builds Windows and Linux installers with `
 
 ## Licence
 
-European Union Public Licence (EUPL), as in the original. If you distribute this software or a derivative, you must do so under the EUPL and make the source code available.
+Magnolia is free and released under the European Union Public Licence. This means that everyone is free to use Magnolia, reproduce it, change it, and make their changes available to others (among other things). Importantly, if Magnolia or a derivative of it is distributed, it must also be done under the EUPL licence and the source code must be made freely available.
+
+This ensures that Magnolia remains free for everyone, and disincentivises companies from profiting off it.
+
+## Powerful coding, powerful queries
+
+<p align="center">
+  <img src="screenshot-queryresults.webp" alt="Query results in Magnolia, listing the matching passages in each document" width="100%">
+</p>
+
+Magnolia's intuitive, graphical query builder lets you build powerful queries to explore your data.
+
+You can save your queries for later, and see the results update in real-time—even while coding data.
+
+You can selectively apply queries to specific documents, types of documents, documents in specific folders, and/or documents with specific tags. 
+
+## A rich suite of analysis tools
+
+<p align="center">
+  <img src="screenshot-codecooccurrences.webp" alt="A code co-occurrence grid in Magnolia" width="750">
+</p>
+
+Magnolia's rich suite of analytical tools allow you to interrogate your data. You can selectively apply these tools to specific documents, types of documents, documents in specific folders, and/or documents with specific tags.  
+
+- **Relationships:** Map anything and everything. Just drag it to the canvas! Everything on your canvas is interactive; just double-click and you will be taken there. You can even export your map as an SVG file.
+
+- **Codes in Documents:** Easily see which codes exist in which documents.
+
+- **Framework Matrix:** Summarise coded information in a Framework Matrix, 
+
+- **Results in Documents:** Want to see how different queries produce different results? Easily see how many results different queries produce for each document in your project. 
+
+- **Code Co-Occurrences:** See which codes overlap with each other. 
+
+- **Code Orders:** Explore the order codes appear in your data. 
+
+- **Code Frequencies:** Easily see how much of each document is covered by particular codes.
+
+- **Word Frequencies:** See which words appear how often, in whole documents or only in the passages coded with particular codes. See the data displayed as a chart or a word cloud.
+
+- **Word Combinations:** See which words go together: phrases that repeat, the words that tend to appear in the same sentences as a word you choose, and a word tree of everything that comes before and after it.
+
+- **Reports:** Combine analysis results, documents, queries, and more into a PDF report.
+
+## Easily transcribe audio and video
+
+Transcribing audio and video makes it much easier to code.
+
+Magnolia lets you transcribe audio and video. Naturally, you can do this with a foot pedal. Simply map keys to your foot pedal's buttons and then tell Magnolia that those keys are used to play, fast-forward, and rewind. Easy! There's no need for separate software.
+
+Magnolia does not include AI transcription.
+
+<p align="center">
+  <img src="screenshot-transcript.webp" alt="An audio transcript being coded in Magnolia" width="750">
+</p>
+
+## Intuitive video coding
+
+Qualitative researchers know that videos capture more than just words. The picture is also important! Because of this, Magnolia syncs your video codes to timestamps. 
+
+This means that when you code a transcript, your codes also appear in the video timeline. If you code in the video timeline, your codes also appear in the transcript. The transcript and the video are linked!
+
+## Support for survey data
+
+<p align="center">
+  <img src="screenshot-surveys.webp" alt="The survey summary page in Magnolia" width="750">
+</p>
+
+Other QDA software breaks your survey responses into individual documents. Magnolia doesn't!
+
+Magnolia's survey summary page allows you to easily see the results of your survey at a glance. See which percentage of respondents answered each question, or selected which options. Numerical data is presented as box plots (with the number of respondents, the mean, median, and mode). Go deeper into each respondent's answers, or compare how different respondents answered a question. 
+
+You can also export a report with all your survey data.
+
+## Native QDPX support
+
+Magnolia reads and writes the QDPX format as standard. This is the open standard for qualitative data analysis. Other software defaults to proprietary formats. Magnolia does not!
+
+Of course, there are some features in Magnolia which the QDPX format does not support. Magnolia overcomes this problem by including the Magnolia-specific features in a special part of the QDPX file. This means that other software (such as Atlas.ti and MAXQDA) can open Magnolia files without any problem, and will just ignore the Magnolia-specific features. 
+
+## Supported document types
+
+- Text: .txt, .md, .markdown, .pdf, .docx, .rtf, .odt (Magnolia converts .docx, .rtf, and .odt files to .pdf when they are imported)
+- Images: .jpg, .jpeg, .png, .gif, .webp, .tif, .tiff, .heic, .heif 
+- Audio: .wav, .mp3, .ogg, .flac, .m4a, .aac
+- Video: .mp4, .mov, .avi
+- Surveys: .csv, .xlsx
+
+## No AI; optional sync
+
+Magnolia does not contain any AI features. There's no AI analysis, and no AI transcription. You are the researcher! Sync is optional and uses the database you configure; local projects remain supported.
+
+Without sync, data stays in local project files or on a network drive. With Magnolia Sync, your team can collaborate through your own Supabase/Postgres project.
+
+There is nothing in Magnolia which requires a subscription.
+
+## Troubleshooting
+
+### Linux AppImage fails with "error loading libfuse.so.2"
+
+AppImages need **libfuse2** to mount themselves at launch. Several recent
+distros (Fedora 41+, Ubuntu 24.04+, and others) no longer ship it by default,
+so the AppImage fails immediately with:
+
+```
+dlopen(): error loading libfuse.so.2
+AppImages require FUSE to run.
+```
+
+Two ways to fix it:
+
+- **Use the .deb or .rpm package instead** — they install their own
+  dependencies automatically and don't need FUSE. See the download links
+  above.
+- **Or install libfuse2** and keep using the AppImage:
+  - Fedora/RHEL: `sudo dnf install fuse-libs`
+  - Ubuntu/Debian: `sudo apt install libfuse2`
+  - Arch: `sudo pacman -S fuse2`

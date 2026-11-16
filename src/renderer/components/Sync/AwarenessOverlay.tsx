@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSyncStore } from '../../sync/sync-store'
+import { useTranslation } from 'react-i18next'
 import { useAwarenessStore } from '../../sync/awareness'
 import { useNoticeStore } from '../../sync/remote-changes'
 import { colorForUser, cpToUtf16, type PresenceLike } from '../../sync/awareness-core'
@@ -84,6 +85,7 @@ function whereLabel(e: PresenceLike, sourceName: (g: string) => string | undefin
 }
 
 function Overlay(): JSX.Element {
+  const { t } = useTranslation()
   const remote = useAwarenessStore((s) => s.remote)
   const viewed = useDocumentStore((s) => s.viewedDocumentGuid)
   const sources = useDocumentStore((s) => s.sources)
@@ -154,7 +156,7 @@ function Overlay(): JSX.Element {
       </div>
       <div style={{ position: 'fixed', right: 10, bottom: 44, zIndex: 9000, display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end', pointerEvents: 'none' }}>
         {remote.map((e) => (
-          <div key={e.userId} title={`${e.displayName} is on ${whereLabel(e, sourceName)}`}
+          <div key={e.userId} title={t('sync.awarenessTitle', { name: e.displayName, where: whereLabel(e, sourceName) })}
             style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: 'var(--bg-secondary, #fff)', border: `1.5px solid ${e.color ?? colorForUser(e.userId)}`, color: 'var(--text-secondary)' }}>
             <span style={{ color: e.color ?? colorForUser(e.userId) }}>●</span> {e.displayName} · {whereLabel(e, sourceName)}
           </div>
@@ -164,7 +166,7 @@ function Overlay(): JSX.Element {
         {notices.map((n) => (
           <div key={n.key} role="status" style={{ fontSize: 12, padding: '6px 10px', borderRadius: 6, background: 'var(--bg-secondary, #fff)', color: 'var(--text-primary, #222)', border: `1px solid ${n.conflict ? 'var(--danger, #c00)' : 'var(--border, #ccc)'}` }}>
             {n.text}{' '}
-            <button style={{ fontSize: 11 }} onClick={() => useNoticeStore.getState().dismiss(n.key)}>OK</button>
+            <button style={{ fontSize: 11 }} onClick={() => useNoticeStore.getState().dismiss(n.key)}>{t('common.ok')}</button>
           </div>
         ))}
       </div>

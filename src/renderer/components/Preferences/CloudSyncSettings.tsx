@@ -11,12 +11,14 @@ import { AccountPanel } from '../Sync/AccountPanel'
 import { InvitePanel } from '../Sync/InvitePanel'
 import { MembersPanel } from '../Sync/MembersPanel'
 import { ProjectPicker } from '../Sync/ProjectPicker'
+import { useTranslation } from 'react-i18next'
 
 const row = { display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' } as const
 const input = { flex: 1, fontSize: 12, padding: '4px 6px' } as const
 const note = { fontSize: 11.5, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 10 } as const
 
 export function CloudSyncSettings(): JSX.Element {
+  const { t } = useTranslation()
   const sync = useSyncStore()
   const [url, setUrl] = useState('')
   const [key, setKey] = useState('')
@@ -30,22 +32,21 @@ export function CloudSyncSettings(): JSX.Element {
   }, [])
 
   const run = async (fn: () => Promise<string | void>): Promise<void> => {
-    setMsg('Working…')
-    try { setMsg((await fn()) || 'Done') } catch (e) { setMsg(e instanceof Error ? e.message : String(e)) }
+    setMsg(t('sync.working'))
+    try { setMsg((await fn()) || t('common.done')) } catch (e) { setMsg(e instanceof Error ? e.message : String(e)) }
   }
 
   return (
     <div style={{ marginBottom: 24 }}>
-      <h3 style={{ fontSize: 13, fontWeight: 600, marginBottom: 10, color: 'var(--text-secondary)' }}>Cloud Sync</h3>
+      <h3 style={{ fontSize: 13, fontWeight: 600, marginBottom: 10, color: 'var(--text-secondary)' }}>{t('sync.settingsTitle')}</h3>
       <p style={note}>
-        Optional. Connect to your own Supabase project to collaborate. Magnolia works offline and cloud data stays in your database.
-        Use only the publishable / anon key — never a secret or service-role key.
+        {t('sync.settingsIntro')}
       </p>
       <div style={row}>
-        <input style={input} placeholder="https://xxxx.supabase.co" value={url} onChange={(e) => setUrl(e.target.value)} />
+        <input style={input} placeholder={t('sync.projectUrlPlaceholder')} value={url} onChange={(e) => setUrl(e.target.value)} />
       </div>
       <div style={row}>
-        <input style={input} type="password" placeholder={hasKey ? '•••••• (saved securely)' : 'publishable / anon key'}
+        <input style={input} type="password" placeholder={hasKey ? t('sync.keySavedPlaceholder') : t('sync.keyPlaceholder')}
           value={key} onChange={(e) => setKey(e.target.value)} />
       </div>
       <div style={row}>
@@ -54,7 +55,7 @@ export function CloudSyncSettings(): JSX.Element {
             const previous = await window.api.syncGetKeys()
             const changed = previous?.url !== url.trim() || previous?.anonKey !== key.trim()
             const r = await window.api.syncSetConfig(url.trim(), key.trim())
-            if (!r.ok) throw new Error(r.error ?? 'Could not save credentials.')
+            if (!r.ok) throw new Error(r.error ?? t('sync.saveCredentialsFailed'))
             if (changed) {
               await stopSync()
               clearAuthClient()
@@ -63,11 +64,11 @@ export function CloudSyncSettings(): JSX.Element {
             setHasKey(true)
             setSavedUrl(url.trim())
             setKey('')
-          } else if (!hasKey || savedUrl !== url.trim()) throw new Error('Enter your Supabase publishable key.')
+          } else if (!hasKey || savedUrl !== url.trim()) throw new Error(t('sync.enterPublishableKey'))
           const test = await window.api.syncTestConnection()
-          if (!test.ok) throw new Error(test.error ?? 'Connection failed.')
-          return 'Connection OK'
-        })}>Save / test connection</button>
+          if (!test.ok) throw new Error(test.error ?? t('sync.connectionFailed'))
+          return t('sync.connectionOk')
+        })}>{t('sync.saveTestConnection')}</button>
         <button onClick={() => run(async () => {
           await stopSync()
           await window.api.syncClearConfig()
@@ -76,24 +77,27 @@ export function CloudSyncSettings(): JSX.Element {
           setHasKey(false)
           setSavedUrl('')
           setKey('')
-          return 'Configuration and saved session cleared'
-        })}>Clear</button>
+          return t('sync.configurationCleared')
+        })}>{t('common.clear')}</button>
         <button onClick={() => run(async () => {
           await navigator.clipboard.writeText(schemaSql)
-          return 'Setup SQL copied'
-        })}>Copy setup SQL</button>
+          return t('sync.setupSqlCopied')
+        })}>{t('sync.copySetupSql')}</button>
       </div>
       <p style={note}>
-        <a href="https://caledavis.github.io/Magnolia/guide/sync" target="_blank" rel="noreferrer">Step-by-step Supabase setup guide</a>
+        <a href="https://caledavis.github.io/Magnolia/guide/sync" target="_blank" rel="noreferrer">{t('sync.setupGuide')}</a>
       </p>
 
       {hasKey && <>
-        <h4 style={{ fontSize: 12, margin: '16px 0 8px' }}>Account</h4>
+        <h4 style={{ fontSize: 12, margin: '16px 0 8px' }}>{t('sync.account')}</h4>
         <AccountPanel />
       </>}
 
       <h3 style={{ fontSize: 13, fontWeight: 600, margin: '16px 0 8px', color: 'var(--text-secondary)' }}>
-        This project — {sync.status}{sync.pending ? ` (${sync.pending} pending)` : ''}
+        {t('sync.projectHeading', {
+          status: t(`sync.status.${sync.status}`),
+          pending: sync.pending ? ` (${t('sync.pendingLabel', { count: sync.pending })})` : ''
+        })}
       </h3>
       {sync.status === 'off' ? <>
         <div style={row}>
@@ -103,43 +107,52 @@ export function CloudSyncSettings(): JSX.Element {
             const expiresAt = new Date(Date.now() + 7 * 86400_000).toISOString()
             const invite = await createInvite(id, 'editor', expiresAt)
             await navigator.clipboard.writeText(invite)
-            return `Cloud project created. Editor invite copied: ${invite}`
-          })}>Upload and share this project</button>
+            return t('sync.projectCreated', { invite })
+          })}>{t('sync.uploadAndShare')}</button>
         </div>
         {sync.account && <ProjectPicker onOpen={async (id) => {
           const result = await connectExistingAndConnect(id)
-          if (result === 'review') setMsg('Connected. Review cloud changes in the Merge tab.')
+          if (result === 'review') setMsg(t('sync.connectedReview'))
         }} onJoin={async (inviteCode) => {
           const result = await joinAndConnect(inviteCode)
-          if (result === 'review') setMsg('Joined. Review cloud changes in the Merge tab.')
+          if (result === 'review') setMsg(t('sync.joinedReview'))
         }} />}
-        <p style={note}>Joining an empty project downloads the cloud project. Joining a project with content opens Merge review so you choose what to keep.</p>
+        <p style={note}>{t('sync.joinProjectHelp')}</p>
       </> : <>
         <div style={row}>
-          <button onClick={() => sync.set({ paused: !sync.paused })}>{sync.paused ? 'Resume' : 'Pause'}</button>
-          <button onClick={() => run(stopSync)}>Disconnect</button>
+          <button onClick={() => sync.set({ paused: !sync.paused })}>{sync.paused ? t('sync.resume') : t('sync.pause')}</button>
+          <button onClick={() => run(stopSync)}>{t('sync.disconnect')}</button>
         </div>
         {sync.role === 'owner' && sync.projectId && <>
           <InvitePanel projectId={sync.projectId} />
           <MembersPanel projectId={sync.projectId} />
         </>}
       </>}
-      {sync.presence.length > 0 && <p style={note}>Online now: {[...new Set(sync.presence.map((p) => p.displayName))].join(', ')}</p>}
-      {sync.role === 'viewer' && <p style={note}>You joined as a viewer: your local changes are not uploaded.</p>}
+      {sync.presence.length > 0 && <p style={note}>{t('sync.onlineNow', { names: [...new Set(sync.presence.map((p) => p.displayName))].join(', ') })}</p>}
+      {sync.role === 'viewer' && <p style={note}>{t('sync.viewerNotice')}</p>}
       {sync.status !== 'off' && <>
         <div style={row}>
-          <button onClick={() => run(async () => { setActivity(await fetchActivity()); return 'Activity loaded' })}>Show recent activity</button>
+          <button onClick={() => run(async () => { setActivity(await fetchActivity()); return t('sync.activityLoaded') })}>{t('sync.showRecentActivity')}</button>
         </div>
         {activity.length > 0 && (
           <ul style={{ ...note, maxHeight: 160, overflow: 'auto', paddingLeft: 16 }}>
             {activity.map((a, i) => (
-              <li key={i}>{new Date(a.created_at).toLocaleString()} — {a.author_name ?? a.author ?? 'Unknown'}: {a.op} {a.kind} {a.guid.slice(0, 8)}</li>
+              <li key={i}>{t('sync.activityEntry', {
+                date: new Date(a.created_at).toLocaleString(),
+                author: a.author_name ?? a.author ?? t('sync.unknown'),
+                operation: a.op,
+                kind: a.kind,
+                id: a.guid.slice(0, 8)
+              })}</li>
             ))}
           </ul>
         )}
       </>}
       {sync.conflicts.length > 0 && (
-        <p style={note}>{sync.conflicts.length} conflict(s) were resolved in favour of the remote version: {sync.conflicts.slice(-5).map((c) => `${c.kind}:${c.guid} (${c.reason})`).join(', ')}</p>
+        <p style={note}>{t('sync.conflictsResolved', {
+          count: sync.conflicts.length,
+          conflicts: sync.conflicts.slice(-5).map((c) => `${c.kind}:${c.guid} (${c.reason})`).join(', ')
+        })}</p>
       )}
       {(msg || sync.error) && <p role="status" style={note}>{msg || sync.error}</p>}
     </div>

@@ -41,6 +41,7 @@ import { useClampedMenuPosition } from '../../utils/use-clamped-menu-position'
 import { renderPdfRegionThumbnail } from '../../utils/pdf-thumbnail'
 import { renderImageRegionThumbnail } from '../../utils/image-thumbnail'
 import { useDocumentStore } from '../../stores/document-store'
+import { useTranslation } from 'react-i18next'
 
 /** Group results by sourceGuid, preserving order of first appearance. */
 export function groupByDocument(
@@ -214,6 +215,7 @@ export function ResultItem({
   survey,
   onContextMenu
 }: ResultItemProps) {
+  const { t } = useTranslation()
   const beforeCpLen = result.contextBefore ? Array.from(result.contextBefore).length : 0
   const matchCpLen = Array.from(result.matchedText).length
   const contextStartCp = result.startPosition - beforeCpLen
@@ -234,8 +236,8 @@ export function ResultItem({
     const rIdx = survey.respondents.findIndex((r) => r.id === surveyCell.respondentId)
     const qIdx = survey.questions.findIndex((q) => q.id === surveyCell.questionId)
     if (rIdx >= 0 && qIdx >= 0) {
-      surveyCellLabel = `Respondent ${rIdx + 1} · Question ${qIdx + 1}`
-      surveyCellTitle = `${survey.respondents[rIdx].displayName || `Respondent ${rIdx + 1}`}\n${survey.questions[qIdx].text}`
+      surveyCellLabel = t('merge.surveyCell', { respondent: rIdx + 1, question: qIdx + 1 })
+      surveyCellTitle = `${survey.respondents[rIdx].displayName || t('results.respondentN', { n: rIdx + 1 })}\n${survey.questions[qIdx].text}`
     }
   }
 
@@ -244,7 +246,7 @@ export function ResultItem({
   if (pdfPageOffsets && pdfPageOffsets.length > 0) {
     const first = pdfPageAt(pdfPageOffsets, result.startPosition)
     const last = pdfPageAt(pdfPageOffsets, Math.max(result.startPosition, result.endPosition - 1))
-    positionLabel = first === last ? `Page ${first}` : `Pages ${first}–${last}`
+    positionLabel = first === last ? t('results.page', { page: first }) : t('results.pages', { first, last })
   }
 
   return (
@@ -339,7 +341,7 @@ export function ResultItem({
             maxW={260}
             maxH={180}
           />
-          <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>Page {pdfRegion.page}</span>
+          <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{t('results.page', { page: pdfRegion.page })}</span>
         </div>
       ) : (
         <>
@@ -350,6 +352,7 @@ export function ResultItem({
           )}
 
           <div
+            className="user-text"
             style={{
               color: 'var(--text-primary)',
               lineHeight: 1.6,
@@ -420,7 +423,7 @@ export function ResultItem({
               opacity: 0.7
             }}
           >
-            {isExpanded ? 'Show less' : 'Show more'}
+            {isExpanded ? t('results.showLess') : t('results.showMore')}
           </div>
         </>
       )}
@@ -479,6 +482,7 @@ export function QueryResultsBody({
   surveyForGuid,
   missingDocuments
 }: QueryResultsBodyProps) {
+  const { t } = useTranslation()
   const groups = useMemo(() => groupByDocument(results), [results])
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; copy: () => void } | null>(null)
   const menuPos = useClampedMenuPosition(contextMenu)
@@ -497,9 +501,9 @@ export function QueryResultsBody({
     <>
       {!isActive && (
         <div className="empty-state" style={{ padding: 20, textAlign: 'center', color: 'var(--text-muted)', fontSize: 'var(--font-size-sm)' }}>
-          No active query.
+          {t('results.noActive')}
           <br />
-          Use the Query tool to create a new query.
+          {t('results.noActiveHint')}
         </div>
       )}
       {isActive && missingDocuments && missingDocuments.length > 0 && (
@@ -514,12 +518,12 @@ export function QueryResultsBody({
             color: 'var(--text-secondary)'
           }}
         >
-          This query references {missingDocuments.length} document{missingDocuments.length !== 1 ? 's' : ''} no longer in the project.
+          {t('results.missingDocs', { count: missingDocuments.length })}
         </div>
       )}
       {isActive && results.length === 0 && (
         <div className="empty-state" style={{ padding: 20, textAlign: 'center', color: 'var(--text-muted)', fontSize: 'var(--font-size-sm)' }}>
-          No matches found.
+          {t('results.noMatches')}
         </div>
       )}
       {groups.map((group) => {
@@ -561,12 +565,12 @@ export function QueryResultsBody({
                 onClick={onOpenSource
                   ? (e) => { e.stopPropagation(); onOpenSource(group.sourceGuid) }
                   : undefined}
-                title={onOpenSource ? 'Open document' : undefined}
+                title={onOpenSource ? t('results.openDocument') : undefined}
               >
                 {group.sourceName}
               </span>
               <span style={{ fontSize: 10, color: 'var(--text-muted)', flexShrink: 0 }}>
-                {group.results.length} match{group.results.length !== 1 ? 'es' : ''}
+                {t('results.matchCount', { count: group.results.length })}
               </span>
             </div>
 
@@ -608,7 +612,7 @@ export function QueryResultsBody({
               setContextMenu(null)
             }}
           >
-            Copy Result
+            {t('results.copy')}
           </div>
         </div>
       )}

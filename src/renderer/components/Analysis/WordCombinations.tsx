@@ -18,7 +18,9 @@ import {
   type DocumentFilterState
 } from '../DocumentSelector/DocumentSelector'
 import { DocumentsSection } from './DocumentsSection'
-import { toCsv, resolveFilteredSources, STOP_WORDS, applySurveyCellScope } from './analysis-helpers'
+import { toCsv, resolveFilteredSources, applySurveyCellScope } from './analysis-helpers'
+import { stopWordsText } from './stop-words'
+import { StopWordsPicker } from './StopWordsPicker'
 import {
   countWords,
   sourceTexts,
@@ -48,9 +50,11 @@ import { renameSavedAnalysis } from '../../utils/rename-saved-analysis'
 import { useToolDirtyState } from '../../hooks/use-tool-dirty-state'
 import { useRegisterToolSave } from '../../hooks/use-register-tool-save'
 import { SegmentedControl } from './SegmentedControl'
-import { buildWordTree, connectedNodes, flattenWordTree, layoutWordTree, type TreeLayout } from './word-tree'
+import { buildWordTree, connectedNodes, flattenWordTree, layoutWordTree, svgTextDirection, type TreeLayout } from './word-tree'
 import { useThemeSvgColors, SVG_FONT_FAMILY } from '../../utils/use-theme-svg-colors'
 import { buildPhraseNetwork, layoutPhraseNetwork, linkTitle, neighbours, LABEL_GAP, type NetworkLayout } from './phrase-network'
+import { useTranslation } from 'react-i18next'
+import { formatPercent, formatFixed, formatNumber, currentLanguage } from '../../i18n'
 
 export type CombinationsView = 'phrases' | 'associations' | 'tree'
 /** How Phrases are shown. */
@@ -91,7 +95,7 @@ export function defaultCombinationsConfig(): WordCombinationsConfig {
     includeSubcodes: true,
     queryGuids: [],
     includeWords: '',
-    excludeWords: Array.from(STOP_WORDS).join(', '),
+    excludeWords: stopWordsText(currentLanguage()),
     view: 'phrases',
     phraseLength: 2,
     phraseDisplay: 'list',
@@ -148,6 +152,7 @@ function WordTreeChart({ layout, svgRef, onSearch }: {
   svgRef: React.Ref<SVGSVGElement>
   onSearch: (phrase: string) => void
 }) {
+  const { t } = useTranslation()
   const colors = useThemeSvgColors()
   const [hovered, setHovered] = useState<number | null>(null)
   const lit = useMemo(() => (hovered === null ? null : connectedNodes(layout, hovered)), [layout, hovered])
@@ -160,12 +165,14 @@ function WordTreeChart({ layout, svgRef, onSearch }: {
       {layout.nodes.map((n, i) => {
         const b = n.branch
         const phrase = b ? b.phrase : n.text
+        const { anchor, direction } = svgTextDirection(layout, n)
         return (
           <text
             key={i}
             x={n.x}
             y={n.y}
-            textAnchor={n.anchor}
+            textAnchor={anchor}
+            direction={direction}
             dominantBaseline="middle"
             fontSize={n.fontSize}
             fontWeight={n.fontWeight}
@@ -175,7 +182,7 @@ function WordTreeChart({ layout, svgRef, onSearch }: {
             onMouseLeave={() => setHovered(null)}
             onClick={() => onSearch(phrase)}
           >
-            <title>{`“${phrase}”: ${b ? b.count : 'every'} time${b?.count === 1 ? '' : 's'}. Click to search`}</title>
+            <title>{b ? t('combos.phraseTimes', { phrase, count: b.count }) : t('combos.phraseEvery', { phrase })}</title>
             {n.text}
           </text>
         )
@@ -193,6 +200,7 @@ function PhraseNetworkChart({ layout, svgRef, onSearch, onWord }: {
   onSearch: (phrase: string) => void
   onWord: (word: string) => void
 }) {
+  const { t } = useTranslation()
   const colors = useThemeSvgColors()
   const [hovered, setHovered] = useState<{ node: number } | { link: number } | null>(null)
   const lit = useMemo(() => {
@@ -210,7 +218,7 @@ function PhraseNetworkChart({ layout, svgRef, onSearch, onWord }: {
   return (
     <svg ref={svgRef} viewBox={`0 0 ${layout.width} ${layout.height}`} width={layout.width} height={layout.height} fontFamily={SVG_FONT_FAMILY} style={{ display: 'block' }}>
       {layout.links.map((l, i) => {
-        const s = layout.nodes[l.source], t = layout.nodes[l.target]
+        const s = layout.nodes[l.source], e = layout.nodes[l.target]
         const on = linkLit(i)
         return (
           <g key={i} style={{ cursor: 'pointer' }}
@@ -218,10 +226,10 @@ function PhraseNetworkChart({ layout, svgRef, onSearch, onWord }: {
             onMouseLeave={() => setHovered(null)}
             onClick={() => onSearch(l.phrases[0].phrase)}
           >
-            <title>{`${linkTitle(l)}\nClick to search for “${l.phrases[0].phrase}”`}</title>
-            <line x1={s.x} y1={s.y} x2={t.x} y2={t.y} stroke={on ? colors.accent : colors.borderColor} strokeWidth={l.strokeWidth} strokeLinecap="round" opacity={hovered && !on ? 0.4 : 1} />
+            <title>{`${linkTitle(l)}\n${t('combos.linkClick', { phrase: l.phrases[0].phrase })}`}</title>
+            <line x1={s.x} y1={s.y} x2={e.x} y2={e.y} stroke={on ? colors.accent : colors.borderColor} strokeWidth={l.strokeWidth} strokeLinecap="round" opacity={hovered && !on ? 0.4 : 1} />
             {/* A wider invisible line, so thin lines are easy to hover. */}
-            <line x1={s.x} y1={s.y} x2={t.x} y2={t.y} stroke="transparent" strokeWidth={Math.max(8, l.strokeWidth)} />
+            <line x1={s.x} y1={s.y} x2={e.x} y2={e.y} stroke="transparent" strokeWidth={Math.max(8, l.strokeWidth)} />
           </g>
         )
       })}
@@ -234,7 +242,7 @@ function PhraseNetworkChart({ layout, svgRef, onSearch, onWord }: {
             onMouseLeave={() => setHovered(null)}
             onClick={() => onWord(n.word)}
           >
-            <title>{`“${n.word}”: in phrases ${n.count} time${n.count === 1 ? '' : 's'}. Click to see it in the Word Tree`}</title>
+            <title>{t('combos.nodeTimes', { word: n.word, count: n.count })}</title>
             <circle cx={n.x} cy={n.y} r={n.r} fill={colors.accent} />
             {/* Outlined in the background colour, so lines pass behind the words. */}
             <text x={n.x} y={n.y + n.r + LABEL_GAP} textAnchor="middle" dominantBaseline="hanging" fontSize={n.fontSize} fill={on ? colors.accent : colors.textPrimary}
@@ -246,10 +254,11 @@ function PhraseNetworkChart({ layout, svgRef, onSearch, onWord }: {
   )
 }
 
-const thStyle: React.CSSProperties = { padding: '3px 6px', borderBottom: '1px solid var(--border-color)', textAlign: 'left' }
+const thStyle: React.CSSProperties = { padding: '3px 6px', borderBottom: '1px solid var(--border-color)', textAlign: 'start' }
 const tdStyle: React.CSSProperties = { padding: '2px 6px', borderBottom: '1px solid var(--border-color)' }
 
 export function WordCombinations({ data: propData, savedConfig, inTab }: Props) {
+  const { t } = useTranslation()
   const initial = useMemo((): WordCombinationsConfig => {
     const { guid: _guid, name: _name, ...saved } = savedConfig ?? { guid: '', name: '' }
     return { ...defaultCombinationsConfig(), ...saved }
@@ -376,18 +385,18 @@ export function WordCombinations({ data: propData, savedConfig, inTab }: Props) 
 
   const handleExportCsv = useCallback(() => {
     if (view === 'phrases') {
-      const rows = [['Phrase', 'Count'], ...phrases.map((p) => [p.phrase, String(p.count)])]
+      const rows = [[t('combos.phrase'), t('words.count')], ...phrases.map((p) => [p.phrase, String(p.count)])]
       window.api.exportCsv(toCsv(rows), 'word-combinations-phrases.csv')
     } else if (view === 'tree') {
       if (!tree) return
       const rows = [
-        ['Side', 'Branch', 'Count'],
-        ...flattenWordTree(tree).map(({ side, branch }) => [side === 'before' ? 'Before' : 'After', branch.phrase, String(branch.count)])
+        [t('combos.side'), t('combos.branch'), t('words.count')],
+        ...flattenWordTree(tree).map(({ side, branch }) => [side === 'before' ? t('combos.before') : t('combos.after'), branch.phrase, String(branch.count)])
       ]
       window.api.exportCsv(toCsv(rows), `word-tree-${focus}.csv`)
     } else if (associations) {
       const rows = [
-        ['Word', `Sentences with "${focus}"`, `% of "${focus}" sentences`, 'G2'],
+        [t('words.word'), t('combos.sentencesWith', { word: focus }), t('combos.pctSentences', { word: focus }), 'G2'],
         ...associations.rows.map((r) => [r.word, String(r.together), (r.share * 100).toFixed(1), r.g2.toFixed(2)])
       ]
       window.api.exportCsv(toCsv(rows), `word-combinations-${focus}.csv`)
@@ -432,30 +441,30 @@ export function WordCombinations({ data: propData, savedConfig, inTab }: Props) 
     return false
   })
 
-  const readingWhat = coded ? 'coded passages' : byQuery ? 'query results' : 'selected documents'
+  const readingWhat = coded ? t('combos.reading.coded') : byQuery ? t('combos.reading.query') : t('combos.reading.documents')
   const emptyMessage = coded && codeSets.size === 0
-    ? 'Drag codes into Coded with to look at the words in their passages'
+    ? t('combos.dragCodes')
     : byQuery && queryRuns.size === 0
-      ? 'Drag saved queries into the From these queries box to look at the words in their results'
+      ? t('combos.dragQueries')
       : view === 'phrases'
-      ? 'No phrases repeat often enough. Try a lower number in Appears at least.'
-      : 'No words to show'
+      ? t('combos.noRepeats')
+      : t('combos.noWords')
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <div style={{ padding: '14px 20px 6px', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-secondary)' }}>
           <Icon icon={faWholeWord} className="analysis-header-icon" style={{ fontSize: 16 }} />
-          Word Combinations{isExisting ? ':' : ''}
+          {t('tools.wordCombinations.label')}{isExisting ? ':' : ''}
           {isExisting && <EditableTitleSuffix name={analysisName} onRename={handleRename} />}
         </h2>
         <div style={{ flex: 1 }} />
         <button className="secondary" style={{ fontSize: 11, padding: '4px 14px' }} onClick={() => inTab ? inTab.onClose() : window.close()}>
-          Close
+          {t('common.close')}
         </button>
         {isExisting && dirty && (
           <button className="secondary" style={{ fontSize: 11, padding: '4px 14px' }} onClick={handleDiscard}>
-            Discard Changes
+            {t('common.discardChanges')}
           </button>
         )}
         {isExisting ? (
@@ -464,11 +473,11 @@ export function WordCombinations({ data: propData, savedConfig, inTab }: Props) 
             disabled={!dirty}
             onClick={() => { handleSave(analysisName) }}
           >
-            {dirty ? 'Update Analysis' : 'Saved'}
+            {dirty ? t('analysis.update') : t('analysis.saved')}
           </button>
         ) : (
           <button style={{ fontSize: 11, padding: '4px 14px' }} onClick={() => setShowSaveDialog(true)}>
-            Save Analysis
+            {t('analysis.save')}
           </button>
         )}
         {/* Clearance for the floating MemoFab. */}
@@ -478,24 +487,24 @@ export function WordCombinations({ data: propData, savedConfig, inTab }: Props) 
       {showSaveDialog && (
         <div className="modal-overlay">
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>Save Analysis</h2>
+            <h2>{t('analysis.save')}</h2>
             <input
               autoFocus
               type="text"
               defaultValue={analysisName}
-              placeholder="Analysis name"
+              placeholder={t('analysis.namePlaceholder')}
               style={{ width: '100%' }}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') handleSave((e.target as HTMLInputElement).value.trim() || 'Untitled')
+                if (e.key === 'Enter') handleSave((e.target as HTMLInputElement).value.trim() || t('common.untitled'))
                 if (e.key === 'Escape') setShowSaveDialog(false)
               }}
             />
             <div className="modal-actions">
-              <button className="secondary" onClick={() => setShowSaveDialog(false)}>Cancel</button>
+              <button className="secondary" onClick={() => setShowSaveDialog(false)}>{t('common.cancel')}</button>
               <button onClick={(e) => {
                 const input = (e.target as HTMLElement).parentElement!.parentElement!.querySelector('input') as HTMLInputElement
-                handleSave(input.value.trim() || 'Untitled')
-              }}>Save</button>
+                handleSave(input.value.trim() || t('common.untitled'))
+              }}>{t('common.save')}</button>
             </div>
           </div>
         </div>
@@ -505,8 +514,8 @@ export function WordCombinations({ data: propData, savedConfig, inTab }: Props) 
         <CountWordsIn
           value={textSource}
           onChange={setTextSource}
-          codedTitle="Look only at the passages coded with the chosen codes."
-          queryTitle="Look only at the results of the chosen saved queries. Each query searches the documents chosen in it."
+          codedTitle={t('combos.codedTitle')}
+          queryTitle={t('combos.queryTitle')}
         />
         {byQuery ? (
           <QueriesSection runs={queryRuns} onChangeQueries={setQueryGuids} boxCount={boxCount} />
@@ -528,18 +537,19 @@ export function WordCombinations({ data: propData, savedConfig, inTab }: Props) 
             every word so its branches read as sentences. */}
         {view !== 'tree' && <div style={{ display: 'flex', gap: 14, marginBottom: 14 }}>
           <div className="analysis-section" style={{ flex: 1 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, color: 'var(--text-secondary)' }}>Only these words</div>
-            <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 6 }}>Leave empty to include all words. Otherwise, phrases must contain, and associations must be, one of these words</div>
+            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, color: 'var(--text-secondary)' }}>{t('analysis.onlyTheseWords')}</div>
+            <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 6 }}>{t('combos.onlyHint')}</div>
             <textarea
               value={includeWords}
               onChange={(e) => setIncludeWords(e.target.value)}
-              placeholder="word1, word2, ..."
+              placeholder={t('analysis.wordsPlaceholder')}
               style={{ width: '100%', height: 60, resize: 'vertical' }}
             />
           </div>
           <div className="analysis-section" style={{ flex: 1 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, color: 'var(--text-secondary)' }}>Leave out these words</div>
-            <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 6 }}>Phrases can't start or end with these words, and they aren't shown as associations. Common English stop words are left out by default</div>
+            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, color: 'var(--text-secondary)' }}>{t('analysis.leaveOutWords')}</div>
+            <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 6 }}>{t('combos.leaveOutHint')}</div>
+            <StopWordsPicker value={excludeWords} onChange={setExcludeWords} />
             <textarea
               value={excludeWords}
               onChange={(e) => setExcludeWords(e.target.value)}
@@ -552,57 +562,57 @@ export function WordCombinations({ data: propData, savedConfig, inTab }: Props) 
         <div className="analysis-section">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, gap: 10, flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 'var(--font-size-lg)', fontWeight: 600, color: 'var(--text-secondary)' }}>Results</span>
+              <span style={{ fontSize: 'var(--font-size-lg)', fontWeight: 600, color: 'var(--text-secondary)' }}>{t('analysis.results')}</span>
               <SegmentedControl
-                label="View"
+                label={t('analysis.view')}
                 value={view}
                 onChange={setView}
                 options={[
-                  { value: 'phrases', label: 'Phrases', title: 'Show sequences of words that repeat.' },
-                  { value: 'associations', label: 'Associations', title: 'Show the words that appear in the same sentences as a chosen word.' },
-                  { value: 'tree', label: 'Word Tree', title: 'Show the words that come before and after a chosen word.' }
+                  { value: 'phrases', label: t('combos.viewPhrases'), title: t('combos.viewPhrasesTitle') },
+                  { value: 'associations', label: t('combos.viewAssociations'), title: t('combos.viewAssociationsTitle') },
+                  { value: 'tree', label: t('combos.viewTree'), title: t('combos.viewTreeTitle') }
                 ]}
               />
               {view === 'phrases' ? (
                 <>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--text-muted)' }}>
-                    Phrase length:
+                    {t('combos.phraseLength')}
                     <SegmentedControl
-                      label="Phrase length"
+                      label={t('combos.phraseLengthLabel')}
                       value={String(phraseLength)}
                       onChange={(v) => setPhraseLength(phraseLengthOf(Number(v)))}
-                      options={PHRASE_LENGTHS.map((n) => ({ value: String(n), label: String(n), title: `Look for phrases of ${n} words.` }))}
+                      options={PHRASE_LENGTHS.map((n) => ({ value: String(n), label: String(n), title: t('combos.phraseLengthTitle', { n }) }))}
                     />
-                    words
+                    {t('combos.phraseLengthWords', { count: phraseLength })}
                   </span>
                   <SegmentedControl
-                    label="Show phrases as"
+                    label={t('combos.showAs')}
                     value={phraseDisplay}
                     onChange={setPhraseDisplay}
                     options={[
-                      { value: 'list', label: 'List', title: 'Show the phrases as a list, commonest first.' },
-                      { value: 'network', label: 'Network', title: 'Show the words that follow each other in the phrases, joined by lines.' }
+                      { value: 'list', label: t('combos.list'), title: t('combos.listTitle') },
+                      { value: 'network', label: t('combos.network'), title: t('combos.networkTitle') }
                     ]}
                   />
-                  <label style={{ fontSize: 10, color: 'var(--text-muted)' }} title="Show only the phrases that appear at least this many times.">Appears at least:
+                  <label style={{ fontSize: 10, color: 'var(--text-muted)' }} title={t('combos.appearsAtLeastTitle')}>{t('combos.appearsAtLeast')}
                     <input type="number" min={1} max={1000} value={minCount} onChange={(e) => setMinCount(Number(e.target.value))}
                       style={{ width: 50, margin: '0 4px' }}
                     />
-                    times
+                    {t('combos.appearsAtLeastTimes', { count: minCount })}
                   </label>
                 </>
               ) : (
                 <>
-                  <label style={{ fontSize: 10, color: 'var(--text-muted)' }}>Word:
+                  <label style={{ fontSize: 10, color: 'var(--text-muted)' }}>{t('combos.word')}
                     <input type="text" value={focusWord} onChange={(e) => setFocusWord(e.target.value)}
-                      placeholder={focus && !focusWord.trim() ? focus : 'word'}
-                      style={{ width: 120, marginLeft: 4 }}
+                      placeholder={focus && !focusWord.trim() ? focus : t('combos.wordPlaceholder')}
+                      style={{ width: 120, marginInlineStart: 4 }}
                     />
                   </label>
                   {view === 'associations' && (
-                    <label style={{ fontSize: 10, color: 'var(--text-muted)' }} title="How many sentences a word must share with the chosen word to be shown.">Minimum together:
+                    <label style={{ fontSize: 10, color: 'var(--text-muted)' }} title={t('combos.minTogetherTitle')}>{t('combos.minTogether')}
                       <input type="number" min={1} max={100} value={minTogether} onChange={(e) => setMinTogether(Number(e.target.value))}
-                        style={{ width: 50, marginLeft: 4 }}
+                        style={{ width: 50, marginInlineStart: 4 }}
                       />
                     </label>
                   )}
@@ -610,9 +620,9 @@ export function WordCombinations({ data: propData, savedConfig, inTab }: Props) 
               )}
             </div>
             <div style={{ display: 'flex', gap: 6 }}>
-              <button className="secondary" style={{ fontSize: 10, padding: '3px 8px' }} onClick={handleExportCsv}>Export CSV</button>
+              <button className="secondary" style={{ fontSize: 10, padding: '3px 8px' }} onClick={handleExportCsv}>{t('analysis.exportCsv')}</button>
               {((view === 'tree' && treeLayout) || (networkShown && networkLayout)) && (
-                <button className="secondary" style={{ fontSize: 10, padding: '3px 8px' }} onClick={handleExportSvg}>Export SVG</button>
+                <button className="secondary" style={{ fontSize: 10, padding: '3px 8px' }} onClick={handleExportSvg}>{t('analysis.exportSvg')}</button>
               )}
             </div>
           </div>
@@ -620,12 +630,12 @@ export function WordCombinations({ data: propData, savedConfig, inTab }: Props) 
           {networkShown ? (
             !networkLayout || !network ? (
               <div style={{ padding: 30, textAlign: 'center', color: 'var(--text-muted)', fontSize: 'var(--font-size-sm)' }}>
-                {phrases.length === 0 ? emptyMessage : 'Every phrase is made of left-out words, so there is nothing to join.'}
+                {phrases.length === 0 ? emptyMessage : t('combos.allLeftOut')}
               </div>
             ) : (
               <>
                 <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>
-                  {`${network.phraseCount === phrases.length ? `${phrases.length} phrase${phrases.length === 1 ? '' : 's'}` : `The ${network.phraseCount} commonest of ${phrases.length} phrases`}`}
+                  {network.phraseCount === phrases.length ? t('combos.phraseCount', { count: phrases.length }) : t('combos.commonestOf', { n: network.phraseCount, count: phrases.length })}
                 </div>
                 <div style={{ maxHeight: 620, overflow: 'auto' }}>
                   <PhraseNetworkChart layout={networkLayout} svgRef={networkRef} onSearch={searchFor} onWord={showInTree} />
@@ -638,21 +648,21 @@ export function WordCombinations({ data: propData, savedConfig, inTab }: Props) 
             ) : (
               <>
                 <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>
-                  {phrases.length} phrase{phrases.length === 1 ? '' : 's'}{phrases.length > PHRASE_ROWS ? ` (showing the top ${PHRASE_ROWS})` : ''}
+                  {t('combos.phraseCount', { count: phrases.length })}{phrases.length > PHRASE_ROWS ? ` ${t('combos.showingTop', { n: PHRASE_ROWS })}` : ''}
                 </div>
                 <div style={{ maxHeight: 420, overflowY: 'auto' }}>
                   <table style={{ borderCollapse: 'collapse', fontSize: 11, width: '100%', maxWidth: 520 }}>
                     <thead>
                       <tr>
-                        <th style={thStyle}>Phrase</th>
-                        <th style={{ ...thStyle, textAlign: 'right' }}>Count</th>
+                        <th style={thStyle}>{t('combos.phrase')}</th>
+                        <th style={{ ...thStyle, textAlign: 'end' }}>{t('words.count')}</th>
                       </tr>
                     </thead>
                     <tbody>
                       {phrases.slice(0, PHRASE_ROWS).map(({ phrase, count }) => (
-                        <tr key={phrase} onClick={() => searchFor(phrase)} style={{ cursor: 'pointer' }} title={`Search for "${phrase}"`}>
+                        <tr key={phrase} onClick={() => searchFor(phrase)} style={{ cursor: 'pointer' }} title={t('words.search', { word: phrase })}>
                           <td style={tdStyle}>{phrase}</td>
-                          <td style={{ ...tdStyle, textAlign: 'right' }}>{count}</td>
+                          <td style={{ ...tdStyle, textAlign: 'end' }}>{formatNumber(count)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -663,12 +673,12 @@ export function WordCombinations({ data: propData, savedConfig, inTab }: Props) 
           ) : view === 'tree' ? (
             !tree || !treeLayout ? (
               <div style={{ padding: 30, textAlign: 'center', color: 'var(--text-muted)', fontSize: 'var(--font-size-sm)' }}>
-                {tree ? `“${focus}” doesn’t appear in the ${readingWhat}.` : emptyMessage}
+                {tree ? t('combos.notInReading', { word: focus, reading: readingWhat }) : emptyMessage}
               </div>
             ) : (
               <>
                 <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>
-                  {`“${focus}” appears ${tree.count} time${tree.count === 1 ? '' : 's'}`}
+                  {t('combos.appearsTimes', { word: focus, count: tree.count })}
                 </div>
                 <div style={{ maxHeight: 560, overflow: 'auto' }}>
                   <WordTreeChart layout={treeLayout} svgRef={treeRef} onSearch={(phrase) => searchFor(phrase)} />
@@ -678,39 +688,39 @@ export function WordCombinations({ data: propData, savedConfig, inTab }: Props) 
           ) : !associations || associations.rows.length === 0 ? (
             <div style={{ padding: 30, textAlign: 'center', color: 'var(--text-muted)', fontSize: 'var(--font-size-sm)' }}>
               {associations && associations.focusSentences === 0
-                ? `“${focus}” doesn’t appear in the ${readingWhat}.`
+                ? t('combos.notInReading', { word: focus, reading: readingWhat })
                 : associations
-                  ? `No word shares enough sentences with “${focus}”. Try a lower minimum.`
+                  ? t('combos.noShared', { word: focus })
                   : emptyMessage}
             </div>
           ) : (
             <>
               <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>
-                {`“${focus}” appears in ${associations.focusSentences} of ${associations.sentences} sentences`}
+                {t('combos.appearsInSentences', { word: focus, n: associations.focusSentences, count: associations.sentences })}
               </div>
               <div style={{ maxHeight: 420, overflowY: 'auto', maxWidth: 520 }}>
                 <table style={{ borderCollapse: 'collapse', fontSize: 11, width: '100%' }}>
                   <thead>
                     <tr>
-                      <th style={thStyle}>Word</th>
-                      <th style={{ ...thStyle, textAlign: 'right' }} title={`Sentences containing both this word and “${focus}”`}>Together</th>
-                      <th style={{ ...thStyle, textAlign: 'right' }} title={`Share of the sentences with “${focus}” that also contain this word`}>% of Sentences</th>
-                      <th style={{ ...thStyle, textAlign: 'right' }} title="Log-likelihood: how unlikely it is that the words share this many sentences by chance">G²</th>
+                      <th style={thStyle}>{t('words.word')}</th>
+                      <th style={{ ...thStyle, textAlign: 'end' }} title={t('combos.togetherTitle', { word: focus })}>{t('combos.together')}</th>
+                      <th style={{ ...thStyle, textAlign: 'end' }} title={t('combos.pctOfSentencesTitle', { word: focus })}>{t('combos.pctOfSentences')}</th>
+                      <th style={{ ...thStyle, textAlign: 'end' }} title={t('combos.g2Title')}>G²</th>
                     </tr>
                   </thead>
                   <tbody>
                     {associations.rows.slice(0, ASSOCIATION_ROWS).map((r) => (
-                      <tr key={r.word} onClick={() => searchSentences(r.word)} style={{ cursor: 'pointer' }} title={`Find the sentences with “${focus}” and “${r.word}”`}>
+                      <tr key={r.word} onClick={() => searchSentences(r.word)} style={{ cursor: 'pointer' }} title={t('combos.findSentences', { a: focus, b: r.word })}>
                         <td style={tdStyle}>{r.word}</td>
-                        <td style={{ ...tdStyle, textAlign: 'right' }}>{r.together}</td>
-                        <td style={{ ...tdStyle, textAlign: 'right' }}>{(r.share * 100).toFixed(1)}%</td>
-                        <td style={{ ...tdStyle, textAlign: 'right', color: r.g2 < 3.84 ? 'var(--text-muted)' : undefined }}>{r.g2.toFixed(1)}</td>
+                        <td style={{ ...tdStyle, textAlign: 'end' }}>{r.together}</td>
+                        <td style={{ ...tdStyle, textAlign: 'end' }}>{formatPercent(r.share * 100)}</td>
+                        <td style={{ ...tdStyle, textAlign: 'end', color: r.g2 < 3.84 ? 'var(--text-muted)' : undefined }}>{formatFixed(r.g2, 1)}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
                 <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 6 }}>
-                  G² above 3.84 means the words share sentences more often than chance at p &lt; 0.05; above 10.83, at p &lt; 0.001. Greyed values are below 3.84.
+                  {t('combos.g2Note', { g2: formatFixed(3.84, 2), p: formatFixed(0.05, 2), g2Strict: formatFixed(10.83, 2), pStrict: formatFixed(0.001, 3) })}
                 </div>
               </div>
             </>

@@ -73,6 +73,7 @@ export type PersistedTab =
       title: string
       adhocConfig?: any
     }
+  | { id: string; kind: 'notebook'; folderGuid: string }
 
 export interface User {
   guid: string
@@ -255,6 +256,9 @@ export interface TextSource {
   creationDateTime?: string
   modifyingUser?: string
   modifiedDateTime?: string
+  /** The Zotero item the document was imported from (zotero://select/…),
+   *  kept out of sight in magnolia-sources.json. */
+  zoteroLink?: string
   selections: PlainTextSelection[]
 }
 
@@ -290,10 +294,11 @@ export interface PlainTextSelection {
    *  of (or in addition to) a character range. startPosition/endPosition
    *  are still used as a fallback for text-based search. */
   pdfRegion?: PdfRegionSelection
-  /** If present, this is a video time-range coding. The authoritative range
-   *  is on the video timeline; startPosition/endPosition carry the line-
-   *  anchor range in the transcript (purely visual — dragging the transcript
-   *  bracket updates startPosition/endPosition without changing timeRange). */
+  /** If present, this is a video coding's time range. Codings made on the
+   *  transcript's text derive it from the lines their text spans; codings
+   *  made on the timeline own it, and startPosition/endPosition (code-point
+   *  offsets, like every coding) are the transcript lines it covers. Saved
+   *  exactly in magnolia-sources.json's videoSelectionAnchors. */
   timeRange?: TimeRange
   /** Video time-range selections only. Set to true when the user has
    *  manually dragged the transcript-bracket endpoints to a new line. Once
@@ -453,9 +458,8 @@ export interface QueryResult {
   matchedCodes: { guid: string; name: string; color?: string }[]
   /** Present when the matched selection is video-anchored. Drives the
    *  inline video player + fully-highlighted transcript rendering in
-   *  the query results window. startPosition/endPosition still carry
-   *  the matching transcript-line range (stored as line indexes for
-   *  video selections). */
+   *  the query results window. startPosition/endPosition carry the
+   *  coding's transcript text span (code-point offsets). */
   timeRange?: TimeRange
   /** Present when the match is inside a survey answer cell — identifies
    *  the (respondent, question) so consumers (e.g. the Select Documents
@@ -541,6 +545,13 @@ export interface EditorInfo {
 }
 
 // IPC API exposed to renderer
+/** A document being imported: Waiting, then Reading (or Converting, for
+ *  Word, RTF and ODT files, which are typeset as PDFs), then Reading text
+ *  (PDFs), then Done or Failed. */
+export type ImportStage = 'waiting' | 'reading' | 'converting' | 'readingText' | 'done' | 'failed'
+export interface ImportItem { name: string; stage: ImportStage; error?: string }
+export interface ImportState { items: ImportItem[]; finished: boolean }
+
 export interface MagnoliaAPI {
   syncLoadState: (key: string) => Promise<any | null>
   syncSaveState: (key: string, state: unknown) => Promise<boolean>
@@ -563,6 +574,10 @@ export interface MagnoliaAPI {
   onProjectLoadProgress: (callback: (p: { stage: string; current: number; total: number }) => void) => () => void
   openProject: () => Promise<Project & { sourceContents: Record<string, string>; missingBinaries?: MissingBinary[]; checkoutInfo?: CheckoutMarker | null } | null>
   pickProjectFile: () => Promise<string | null>
+  /** Of the given files, those that no longer exist. */
+  missingFiles: (paths: string[]) => Promise<string[]>
+  /** Pick several .qdpx files at once (Inter-coder Agreement). */
+  pickProjectFiles: () => Promise<string[]>
   openProjectPath: (filePath: string) => Promise<Project & { sourceContents: Record<string, string>; missingBinaries?: MissingBinary[]; checkoutInfo?: CheckoutMarker | null } | null>
   readCheckoutMarker: (filePath: string) => Promise<CheckoutMarker | null>
   /** Atomic check-and-set: rejects (`ok: false`, `marker` = the current
@@ -628,8 +643,15 @@ export interface MagnoliaAPI {
    *  open. */
   setActiveProjectPath: (filePath: string | null) => Promise<void>
   createNewProjectFile: () => Promise<{ filePath: string; projectName: string } | null>
-  importTextFile: () => Promise<{ name: string; content: string } | null>
+  importTextFile: () => Promise<{ name: string; content: string }[] | null>
+  /** How an import is going: each file's stage, and whether it's finished. */
+  onImportProgress: (callback: (s: ImportState) => void) => () => void
   readTextFiles: (filePaths: string[]) => Promise<{ name: string; content: string }[] | null>
+  /** GET from the Zotero app's local API (a path under /api/). Rejects
+   *  with "zotero-not-running" when Zotero isn't open. */
+  zoteroGet: (path: string) => Promise<{ status: number; total: number | null; body: string }>
+  /** Where a Zotero attachment's file is on this computer, or null. */
+  zoteroFilePath: (library: string, key: string) => Promise<string | null>
   /** Filesystem path of a dropped / picked File ('' if it has none). */
   getPathForFile: (file: File) => string
   /** Re-import the file for an existing document of the given type whose
@@ -668,6 +690,16 @@ export interface MagnoliaAPI {
   setZoomFactor: (factor: number) => void
   broadcastZoomFactor: (factor: number) => void
   onZoomFactorChanged: (callback: (factor: number) => void) => () => void
+  /** The interface language, sent to every other window when it changes. */
+  broadcastLanguage: (language: string) => void
+  onLanguageChanged: (callback: (language: string) => void) => () => void
+  /** Tell the backend the interface language, for its menus and dialogs,
+   *  the preference it came from (a language id, or "system"), and the
+   *  locale its numbers are written in ("ar-u-nu-latn"). */
+  setNativeLanguage: (language: string, preference: string, numberLocale: string) => void
+  /** The computer's region locale as the OS gives it ("ar_EG",
+   *  "ar_EG@numbers=latn"); empty where there's none to read. */
+  systemLocale: () => Promise<string>
   // Codebook window
   openCodebookWindow: (data: CodebookInitData) => void
   getCodebookData: () => Promise<CodebookInitData>
@@ -744,6 +776,16 @@ export interface MagnoliaAPI {
   ) => () => void
   getUpdateBadge: () => Promise<UpdateBadgeState>
   onUpdateBadge: (callback: (state: UpdateBadgeState) => void) => () => void
+  // Inter-coder Agreement results window (pop-out). The data is the
+  // window's IntercoderResultsData (see IntercoderResults.tsx).
+  openIntercoderResultsWindow: (data: unknown) => void
+  updateIntercoderResultsWindow: (data: unknown) => void
+  closeIntercoderResultsWindow: () => void
+  getIntercoderResultsData: () => Promise<unknown>
+  onIntercoderResultsData: (callback: (data: unknown) => void) => () => void
+  sendIntercoderResultsAction: (action: string, payload?: unknown) => void
+  onIntercoderResultsAction: (callback: (action: string, payload?: unknown) => void) => () => void
+  onIntercoderResultsClosed: (callback: () => void) => () => void
   // Query results window (pop-out)
   openQueryResultsWindow: (data: QueryResultsInitData) => void
   updateQueryResultsWindow: (data: QueryResultsInitData) => void
@@ -942,6 +984,7 @@ export type AnalysisToolType =
   | 'code-cooccurrences'
   | 'codes-in-documents'
   | 'framework-matrix'
+  | 'intercoder-agreement'
   | 'results-in-documents'
   | 'code-frequencies'
   | 'code-orders'
@@ -958,12 +1001,14 @@ export interface AnalysisInitData {
     name: string
     /** Source kind — drives extent calculations for the analysis tools
      *  (e.g. Code Frequencies uses % of duration for audio/video and
-     *  % of selection count for image / PDF-region codings, where a
-     *  pixel-area denominator isn't available). */
+     *  % of area for image / PDF box codings). */
     sourceType?: SourceType
     /** Duration in seconds for audio/video; used as the denominator
      *  when computing % of media covered by code. */
     duration?: number
+    /** Audio/video: each transcript line's start time (line index →
+     *  seconds), to place codings made on the transcript in time. */
+    lineTimes?: Record<string, number>
   }[]
   folders: { guid: string; name: string; parentGuid: string | null; kind?: 'notebook' }[]
   codes: { guid: string; name: string; color?: string; isCodable: boolean; parentGuid?: string }[]
@@ -975,6 +1020,11 @@ export interface AnalysisInitData {
   sourceSelections: Record<string, PlainTextSelection[]>
   /** Tag member source guids */
   tagMembers: Record<string, string[]>
+  /** PDFs and images whose page sizes have been read (source guid →
+   *  page key 'p1'… → width / height in points or pixels), for measuring
+   *  box codings by area. A document missing here has its size estimated
+   *  from its boxes. */
+  pageSizes?: Record<string, Record<string, { w: number; h: number }>>
   /** Survey respondent/question tag membership (tag guid → entity refs),
    *  for cell-precise scoping of survey content by tag. */
   respondentTagMembers?: Record<string, SurveyEntityRef[]>

@@ -8,7 +8,7 @@ import {
 } from '../DocumentSelector/DocumentSelector'
 import { DocumentsSection } from './DocumentsSection'
 import { documentFilterFromConfig } from './documents-filter'
-import { truncate, countCodeInSource, toCsv, pctOfTotal, resolveFilteredSources, applySurveyCellScope, binarizeGrid } from './analysis-helpers'
+import { truncate, countCodeInSource, toCsv, pctOfTotal, csvPctOfTotal, resolveFilteredSources, applySurveyCellScope, binarizeGrid, columnScopedData, codeRowTotal } from './analysis-helpers'
 import { generateGuid } from '../../utils/guid'
 import {
   type GroupByEntry,
@@ -34,6 +34,8 @@ import { renameSavedAnalysis } from '../../utils/rename-saved-analysis'
 import { useToolDirtyState } from '../../hooks/use-tool-dirty-state'
 import { useRegisterToolSave } from '../../hooks/use-register-tool-save'
 import { visualBoxColour } from '../../utils/code-colours'
+import { useTranslation } from 'react-i18next'
+import { formatNumber } from '../../i18n'
 
 interface Props {
   data: AnalysisInitData
@@ -110,6 +112,7 @@ function frameworkRowsForColumns(columns: AnalysisColumn[], data: AnalysisInitDa
 }
 
 export function CodesInDocuments({ data: propData, savedConfig, inTab }: Props) {
+  const { t } = useTranslation()
   const [docFilter, setDocFilter] = useState<DocumentFilterState>(documentFilterFromConfig(savedConfig))
   const [codeGuids, setCodeGuids] = useState<string[]>(savedConfig?.codeGuids ?? [])
   const [groupBy, setGroupBy] = useState<GroupByEntry[]>(
@@ -180,33 +183,24 @@ export function CodesInDocuments({ data: propData, savedConfig, inTab }: Props) 
     [filteredSourceGuids, groupBy, data, sourceMap]
   )
 
+  // Per-column survey-cell scope: a tag column counts only that tag's
+  // cells; a respondent column counts only that respondent's cells.
+  const colData = useMemo(() => columnScopedData(columns, data), [columns, data])
   const grid = useMemo(() => {
-    // Per-column survey-cell scope: a tag column counts only that tag's
-    // cells; a respondent column counts only that respondent's cells.
-    const colData = new Map<string, AnalysisInitData>()
-    for (const col of columns) {
-      colData.set(
-        col.id,
-        col.respondentRef
-          ? applySurveyCellScope(data, { respondentScope: [col.respondentRef] })
-          : col.tagScopeGuids
-            ? applySurveyCellScope(data, { tagGuids: col.tagScopeGuids })
-            : data
-      )
-    }
     return codeGuids.map((codeGuid) =>
       columns.map((col) => {
         const cd = colData.get(col.id) || data
         return col.sourceGuids.reduce((sum, sg) => sum + countCodeInSource(cd, sg, codeGuid), 0)
       })
     )
-  }, [codeGuids, columns, data])
+  }, [codeGuids, columns, data, colData])
 
-  // Row totals exclude subtotal columns: a category subtotal already
-  // re-counts hits that appear in its child-tag columns.
+  // Row totals count each selection once: not the subtotal columns (which
+  // repeat their parts), and not twice for a document in two of the
+  // groups shown.
   const rowTotals = useMemo(
-    () => grid.map((row) => row.reduce((sum, val, j) => columns[j].isSubtotal ? sum : sum + val, 0)),
-    [grid, columns]
+    () => codeGuids.map((codeGuid) => codeRowTotal(columns, colData, data, codeGuid)),
+    [codeGuids, columns, colData, data]
   )
   const colTotals = useMemo(() => {
     if (grid.length === 0) return columns.map(() => 0)
@@ -343,12 +337,12 @@ export function CodesInDocuments({ data: propData, savedConfig, inTab }: Props) 
   const handleExportCsv = useCallback(() => {
     // Header: each subtotal column gains a "% of Row Total" column, and
     // a "% of Total" column follows the grand Total.
-    const header: string[] = ['Code']
+    const header: string[] = [t('analysis.code')]
     columns.forEach((c) => {
       header.push(c.label)
-      if (c.isSubtotal) header.push('% of Row Total')
+      if (c.isSubtotal) header.push(t('analysis.pctOfRowTotal'))
     })
-    header.push('Total', '% of Total')
+    header.push(t('analysis.total'), t('analysis.pctOfTotal'))
     const rows: string[][] = [header]
     for (let i = 0; i < codeGuids.length; i++) {
       const cells: string[] = [codeMap.get(codeGuids[i])?.name || '']
@@ -356,17 +350,17 @@ export function CodesInDocuments({ data: propData, savedConfig, inTab }: Props) 
         cells.push(String(showGrid[i][j]))
         // R1 (subtotal as % of row total) is not meaningful in Binary
         // view — see the on-screen guard.
-        if (c.isSubtotal) cells.push(binaryMode ? '' : pctOfTotal(showGrid[i][j], showRowTotals[i]))
+        if (c.isSubtotal) cells.push(binaryMode ? '' : csvPctOfTotal(showGrid[i][j], showRowTotals[i]))
       })
-      cells.push(String(showRowTotals[i]), pctOfTotal(showRowTotals[i], showGrandTotal))
+      cells.push(String(showRowTotals[i]), csvPctOfTotal(showRowTotals[i], showGrandTotal))
       rows.push(cells)
     }
-    const totalRow: string[] = ['Total']
+    const totalRow: string[] = [t('analysis.total')]
     columns.forEach((c, j) => {
       totalRow.push(String(showColTotals[j]))
-      if (c.isSubtotal) totalRow.push(binaryMode ? '' : pctOfTotal(showColTotals[j], showGrandTotal))
+      if (c.isSubtotal) totalRow.push(binaryMode ? '' : csvPctOfTotal(showColTotals[j], showGrandTotal))
     })
-    totalRow.push(String(showGrandTotal), pctOfTotal(showGrandTotal, showGrandTotal))
+    totalRow.push(String(showGrandTotal), csvPctOfTotal(showGrandTotal, showGrandTotal))
     rows.push(totalRow)
     window.api.exportCsv(toCsv(rows), 'codes-in-documents.csv')
   }, [columns, codeGuids, showGrid, codeMap, showRowTotals, showColTotals, showGrandTotal, binaryMode])
@@ -442,16 +436,16 @@ export function CodesInDocuments({ data: propData, savedConfig, inTab }: Props) 
       <div style={{ padding: '14px 20px 6px', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-secondary)' }}>
           <Icon icon={faFileCodeCorner} className="analysis-header-icon" style={{ fontSize: 16 }} />
-          Codes in Documents{isExisting ? ':' : ''}
+          {t('tools.codesInDocuments.label')}{isExisting ? ':' : ''}
           {isExisting && <EditableTitleSuffix name={analysisName} onRename={handleRename} />}
         </h2>
         <div style={{ flex: 1 }} />
         <button className="secondary" style={{ fontSize: 11, padding: '4px 14px' }} onClick={() => inTab ? inTab.onClose() : window.close()}>
-          Close
+          {t('common.close')}
         </button>
         {isExisting && dirty && (
           <button className="secondary" style={{ fontSize: 11, padding: '4px 14px' }} onClick={handleDiscard}>
-            Discard Changes
+            {t('common.discardChanges')}
           </button>
         )}
         {isExisting ? (
@@ -460,11 +454,11 @@ export function CodesInDocuments({ data: propData, savedConfig, inTab }: Props) 
             disabled={!dirty}
             onClick={() => { handleSave(analysisName) }}
           >
-            {dirty ? 'Update Analysis' : 'Saved'}
+            {dirty ? t('analysis.update') : t('analysis.saved')}
           </button>
         ) : (
           <button style={{ fontSize: 11, padding: '4px 14px' }} onClick={() => setShowSaveDialog(true)}>
-            Save Analysis
+            {t('analysis.save')}
           </button>
         )}
         {/* Clearance for the floating MemoFab (28 px circle + ~8 gap)
@@ -475,24 +469,24 @@ export function CodesInDocuments({ data: propData, savedConfig, inTab }: Props) 
       {showSaveDialog && (
         <div className="modal-overlay">
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>Save Analysis</h2>
+            <h2>{t('analysis.save')}</h2>
             <input
               autoFocus
               type="text"
               defaultValue={analysisName}
-              placeholder="Analysis name"
+              placeholder={t('analysis.namePlaceholder')}
               style={{ width: '100%' }}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') handleSave((e.target as HTMLInputElement).value.trim() || 'Untitled')
+                if (e.key === 'Enter') handleSave((e.target as HTMLInputElement).value.trim() || t('common.untitled'))
                 if (e.key === 'Escape') setShowSaveDialog(false)
               }}
             />
             <div className="modal-actions">
-              <button className="secondary" onClick={() => setShowSaveDialog(false)}>Cancel</button>
+              <button className="secondary" onClick={() => setShowSaveDialog(false)}>{t('common.cancel')}</button>
               <button onClick={(e) => {
                 const input = (e.target as HTMLElement).parentElement!.parentElement!.querySelector('input') as HTMLInputElement
-                handleSave(input.value.trim() || 'Untitled')
-              }}>Save</button>
+                handleSave(input.value.trim() || t('common.untitled'))
+              }}>{t('common.save')}</button>
             </div>
           </div>
         </div>
@@ -519,9 +513,9 @@ export function CodesInDocuments({ data: propData, savedConfig, inTab }: Props) 
           onDrop={handleTagDrop}
         >
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, marginBottom: groupBy.length > 0 ? 8 : 0, position: 'relative', zIndex: 1 }}>
-            <span style={{ fontSize: 'var(--font-size-lg)', fontWeight: 600, color: 'var(--text-secondary)' }}>Grouped by</span>
+            <span style={{ fontSize: 'var(--font-size-lg)', fontWeight: 600, color: 'var(--text-secondary)' }}>{t('analysis.groupedBy')}</span>
             <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-              Drag tags, categories, or folders here
+              {t('analysis.dragGroupHint')}
             </span>
           </div>
           <div style={{ position: 'relative', zIndex: 1 }}>
@@ -553,40 +547,40 @@ export function CodesInDocuments({ data: propData, savedConfig, inTab }: Props) 
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, position: 'relative', zIndex: 1 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 'var(--font-size-lg)', fontWeight: 600, color: 'var(--text-secondary)', marginRight: 4 }}>Results</span>
+              <span style={{ fontSize: 'var(--font-size-lg)', fontWeight: 600, color: 'var(--text-secondary)', marginInlineEnd: 4 }}>{t('analysis.results')}</span>
               <SegmentedControl
-                label="View"
+                label={t('analysis.view')}
                 value={view}
                 onChange={setView}
                 options={[
-                  { value: 'table', label: 'Table', title: 'Show the grid as numbers.' },
-                  { value: 'visual', label: 'Visual', title: 'Show each cell as a box sized and shaded by its value.' },
-                  { value: 'sankey', label: 'Sankey', title: 'Show the grid as a Sankey diagram of codes flowing into documents.' }
+                  { value: 'table', label: t('analysis.viewTable'), title: t('analysis.viewTableTitle') },
+                  { value: 'visual', label: t('analysis.viewVisual'), title: t('analysis.viewVisualTitle') },
+                  { value: 'sankey', label: t('analysis.viewSankey'), title: t('codesInDocs.sankeyTitle') }
                 ]}
               />
               <SegmentedControl
-                label="Values"
+                label={t('analysis.values')}
                 value={binaryMode ? 'binary' : 'counts'}
                 onChange={(v) => setBinaryMode(v === 'binary')}
                 options={[
-                  { value: 'counts', label: 'Counts', title: 'Show how many coded segments each cell holds.' },
-                  { value: 'binary', label: 'Binary', title: 'Show each cell as 1 (code present) or 0 (absent); totals count the cells.' }
+                  { value: 'counts', label: t('analysis.valuesCounts'), title: t('analysis.valuesCountsTitle') },
+                  { value: 'binary', label: t('analysis.valuesBinary'), title: t('codesInDocs.binaryTitle') }
                 ]}
               />
             </div>
             <div style={{ display: 'flex', gap: 6 }}>
               <button className="secondary" style={{ fontSize: 10, padding: '3px 8px' }} onClick={handleExportCsv} disabled={codeGuids.length === 0}>
-                Export CSV
+                {t('analysis.exportCsv')}
               </button>
-              <button className="secondary" style={{ fontSize: 10, padding: '3px 8px' }} onClick={handleOpenAsFrameworkMatrix} disabled={codeGuids.length === 0} title="Open these codes and documents in a new Framework Matrix, to summarise each code in each document.">
-                Open as Framework Matrix
+              <button className="secondary" style={{ fontSize: 10, padding: '3px 8px' }} onClick={handleOpenAsFrameworkMatrix} disabled={codeGuids.length === 0} title={t('codesInDocs.openAsFrameworkTitle')}>
+                {t('codesInDocs.openAsFramework')}
               </button>
             </div>
           </div>
 
           {codeGuids.length === 0 ? (
             <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 'var(--font-size-sm)', position: 'relative', zIndex: 1 }}>
-              Drag codes from the Code Browser to build the grid
+              {t('analysis.buildGridHint')}
             </div>
           ) : sankeyMode ? (
             <div style={{ overflowX: 'auto' }}>
@@ -594,8 +588,8 @@ export function CodesInDocuments({ data: propData, savedConfig, inTab }: Props) 
                 left={sankeyLeft}
                 right={sankeyRight}
                 values={showGrid}
-                leftTitle="Codes"
-                rightTitle="Documents"
+                leftTitle={t('analysis.codes')}
+                rightTitle={t('analysis.documents')}
                 excludeRight={sankeyExclude}
                 onLinkClick={handleDoubleClick}
                 onLeftClick={handleRowTotalClick}
@@ -634,7 +628,7 @@ export function CodesInDocuments({ data: propData, savedConfig, inTab }: Props) 
                     </tr>
                   )}
                   <tr>
-                    <th style={{ padding: 4, borderBottom: '1px solid var(--border-color)', textAlign: 'left', minWidth: 100, verticalAlign: 'bottom' }}>Code</th>
+                    <th style={{ padding: 4, borderBottom: '1px solid var(--border-color)', textAlign: 'start', minWidth: 100, verticalAlign: 'bottom' }}>{t('analysis.code')}</th>
                     {columns.map((col, j) => (
                       <Fragment key={col.id}>
                         <th
@@ -658,17 +652,17 @@ export function CodesInDocuments({ data: propData, savedConfig, inTab }: Props) 
                           </div>
                         </th>
                         {col.isSubtotal && (
-                          <th title="Subtotal as % of row total" style={{ width: 50, minWidth: 50, maxWidth: 50, background: SUBTOTAL_TINT, borderBottom: '1px solid var(--border-color)', verticalAlign: 'bottom', height: 80, padding: 0, position: 'relative' }}>
+                          <th title={t('analysis.subtotalPctTitle')} style={{ width: 50, minWidth: 50, maxWidth: 50, background: SUBTOTAL_TINT, borderBottom: '1px solid var(--border-color)', verticalAlign: 'bottom', height: 80, padding: 0, position: 'relative' }}>
                             <div style={{ position: 'absolute', bottom: 6, left: '50%', transformOrigin: 'bottom left', transform: 'rotate(-20deg)', whiteSpace: 'nowrap', fontSize: 10, fontWeight: 700, fontStyle: 'italic', color: 'var(--text-secondary)' }}>%</div>
                           </th>
                         )}
                       </Fragment>
                     ))}
                     <th style={{ width: 50, minWidth: 50, maxWidth: 50, borderBottom: '1px solid var(--border-color)', verticalAlign: 'bottom', height: 80, padding: 0, position: 'relative' }}>
-                      <div style={{ position: 'absolute', bottom: 6, left: '50%', transformOrigin: 'bottom left', transform: 'rotate(-20deg)', whiteSpace: 'nowrap', fontSize: 10, fontWeight: 700 }}>Total</div>
+                      <div style={{ position: 'absolute', bottom: 6, left: '50%', transformOrigin: 'bottom left', transform: 'rotate(-20deg)', whiteSpace: 'nowrap', fontSize: 10, fontWeight: 700 }}>{t('analysis.total')}</div>
                     </th>
-                    <th title="Row total as % of grand total" style={{ width: 50, minWidth: 50, maxWidth: 50, background: PCT_TINT, borderBottom: '1px solid var(--border-color)', verticalAlign: 'bottom', height: 80, padding: 0, position: 'relative' }}>
-                      <div style={{ position: 'absolute', bottom: 6, left: '50%', transformOrigin: 'bottom left', transform: 'rotate(-20deg)', whiteSpace: 'nowrap', fontSize: 10, fontWeight: 700, fontStyle: 'italic', color: 'var(--text-secondary)' }}>% of Total</div>
+                    <th title={t('analysis.rowTotalPct')} style={{ width: 50, minWidth: 50, maxWidth: 50, background: PCT_TINT, borderBottom: '1px solid var(--border-color)', verticalAlign: 'bottom', height: 80, padding: 0, position: 'relative' }}>
+                      <div style={{ position: 'absolute', bottom: 6, left: '50%', transformOrigin: 'bottom left', transform: 'rotate(-20deg)', whiteSpace: 'nowrap', fontSize: 10, fontWeight: 700, fontStyle: 'italic', color: 'var(--text-secondary)' }}>{t('analysis.pctOfTotal')}</div>
                     </th>
                   </tr>
                 </thead>
@@ -683,10 +677,10 @@ export function CodesInDocuments({ data: propData, savedConfig, inTab }: Props) 
                     }
                     return (
                     <tr key={codeGuid}>
-                      <td style={{ padding: '4px 6px', paddingLeft: 6 + depth * 14, borderBottom: '1px solid var(--border-color)', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 140 }}>
-                        <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: codeMap.get(codeGuid)?.color || '#888', marginRight: 4, verticalAlign: 'middle' }} />
+                      <td style={{ padding: '4px 6px', paddingInlineStart: 6 + depth * 14, borderBottom: '1px solid var(--border-color)', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 140 }}>
+                        <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: codeMap.get(codeGuid)?.color || '#888', marginInlineEnd: 4, verticalAlign: 'middle' }} />
                         {truncate(codeMap.get(codeGuid)?.name || '', 16)}
-                        <span onClick={() => setCodeGuids((p) => p.filter((g) => g !== codeGuid))} style={{ marginLeft: 4, fontSize: 9, color: 'var(--text-muted)', cursor: 'pointer' }}>x</span>
+                        <span onClick={() => setCodeGuids((p) => p.filter((g) => g !== codeGuid))} style={{ marginInlineStart: 4, fontSize: 9, color: 'var(--text-muted)', cursor: 'pointer' }}>x</span>
                       </td>
                       {columns.map((col, j) => {
                         const val = showGrid[i][j]
@@ -723,8 +717,8 @@ export function CodesInDocuments({ data: propData, savedConfig, inTab }: Props) 
                                 Table ↔ Visual switch. */}
                             <div style={{ height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                               {visualMode ? (
-                                <div style={{ width: boxSize, height: boxSize, background: boxColor, borderRadius: 2 }} title={String(val)} />
-                              ) : val}
+                                <div style={{ width: boxSize, height: boxSize, background: boxColor, borderRadius: 2 }} title={formatNumber(val)} />
+                              ) : formatNumber(val)}
                             </div>
                           </td>
                           {col.isSubtotal && (
@@ -748,14 +742,14 @@ export function CodesInDocuments({ data: propData, savedConfig, inTab }: Props) 
                       <td onClick={() => handleRowTotalClick(i)} style={{
                         width: 50, minWidth: 50, maxWidth: 50, height: 32,
                         borderBottom: '1px solid var(--border-color)',
-                        borderLeft: '2px solid var(--border-color)',
+                        borderInlineStart: '2px solid var(--border-color)',
                         textAlign: 'center',
                         fontWeight: 700,
                         cursor: showRowTotals[i] > 0 ? 'pointer' : 'default',
                         color: showRowTotals[i] === 0 ? 'var(--text-muted)' : undefined,
                         opacity: showRowTotals[i] === 0 ? 0.4 : 1
                       }}>
-                        {showRowTotals[i]}
+                        {formatNumber(showRowTotals[i])}
                       </td>
                       <td style={{
                         width: 50, minWidth: 50, maxWidth: 50, height: 32,
@@ -771,7 +765,7 @@ export function CodesInDocuments({ data: propData, savedConfig, inTab }: Props) 
                   })}
                   {/* Total row */}
                   <tr>
-                    <td style={{ padding: '4px 6px', borderTop: '2px solid var(--border-color)', fontWeight: 700 }}>Total</td>
+                    <td style={{ padding: '4px 6px', borderTop: '2px solid var(--border-color)', fontWeight: 700 }}>{t('analysis.total')}</td>
                     {showColTotals.map((ct, j) => (
                       <Fragment key={columns[j].id}>
                       <td onClick={() => handleColTotalClick(j)} style={{
@@ -784,7 +778,7 @@ export function CodesInDocuments({ data: propData, savedConfig, inTab }: Props) 
                         color: ct === 0 ? 'var(--text-muted)' : undefined,
                         opacity: ct === 0 ? 0.4 : 1
                       }}>
-                        {ct}
+                        {formatNumber(ct)}
                       </td>
                       {columns[j].isSubtotal && (
                         <td style={{
@@ -802,14 +796,14 @@ export function CodesInDocuments({ data: propData, savedConfig, inTab }: Props) 
                     <td onClick={handleGrandTotalClick} style={{
                       width: 50, minWidth: 50, maxWidth: 50, height: 32,
                       borderTop: '2px solid var(--border-color)',
-                      borderLeft: '2px solid var(--border-color)',
+                      borderInlineStart: '2px solid var(--border-color)',
                       textAlign: 'center',
                       fontWeight: 700,
                       cursor: showGrandTotal > 0 ? 'pointer' : 'default',
                       color: showGrandTotal === 0 ? 'var(--text-muted)' : undefined,
                       opacity: showGrandTotal === 0 ? 0.4 : 1
                     }}>
-                      {showGrandTotal}
+                      {formatNumber(showGrandTotal)}
                     </td>
                     <td style={{
                       width: 50, minWidth: 50, maxWidth: 50, height: 32,

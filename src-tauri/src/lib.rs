@@ -3,6 +3,7 @@
 
 mod automation;
 mod commands;
+mod i18n;
 mod menu;
 mod print;
 mod state;
@@ -10,6 +11,7 @@ mod storage;
 mod sync;
 mod updater;
 mod windows;
+mod zotero;
 
 use state::AppState;
 use tauri::{AppHandle, Manager, RunEvent};
@@ -90,7 +92,10 @@ pub fn run() {
         .on_menu_event(|app, event| menu::handle_event(app, event.id().as_ref()))
         .invoke_handler(tauri::generate_handler![
             commands::open_project,
+            zotero::zotero_get,
+            zotero::zotero_file_path,
             commands::pick_project_file,
+            commands::pick_project_files,
             commands::open_project_path,
             commands::set_active_project_path,
             commands::get_file_size,
@@ -99,13 +104,14 @@ pub fn run() {
             commands::check_out_project,
             commands::check_in_project,
             commands::read_qdpx_for_compare,
+            commands::missing_files,
             commands::import_merge_binary,
             commands::read_compare_binary,
             commands::save_project,
             commands::save_project_as,
             commands::create_project_copy,
             commands::create_new_project_file,
-            commands::import_text_file,
+            commands::pick_import_files,
             commands::read_text_files,
             commands::read_dropped_file,
             commands::reimport_document,
@@ -119,6 +125,8 @@ pub fn run() {
             commands::open_acknowledgements,
             commands::open_child_window,
             commands::update_query_results_window,
+            commands::update_intercoder_results_window,
+            commands::close_child_window,
             commands::update_memos_window,
             commands::get_window_data,
             commands::drain_queued_events,
@@ -148,6 +156,8 @@ pub fn run() {
             commands::load_preferences,
             commands::save_preferences,
             commands::preferences_update,
+            i18n::set_native_language,
+            i18n::system_locale,
             commands::get_app_version,
             updater::get_update_badge,
             updater::update_install,
@@ -160,10 +170,13 @@ pub fn run() {
             automation::automation_capture,
             automation::automation_eval,
             automation::automation_log,
+            automation::automation_pdf,
             automation::automation_quit,
         ])
         .setup(|app| {
             storage::init(app.handle());
+            i18n::init_from_preferences(&storage::load_preferences());
+            i18n::install_core_translator();
             updater::preview_at_launch(app.handle());
             menu::rebuild(app.handle());
             // Launched by double-clicking a project (or with a path argument):

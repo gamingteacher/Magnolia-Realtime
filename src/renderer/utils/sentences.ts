@@ -1,11 +1,13 @@
 /**
  * Sentence boundaries, shared by the word analysis tools and the query
  * engine's Same Sentence operator so both agree on what a sentence is: a
- * sentence ends at . ! or ? followed by whitespace, or at a line break.
+ * sentence ends at . ! or ? (or Arabic ؟ and ۔, or the Devanagari danda
+ * । and ॥) followed by whitespace, at Chinese and Japanese 。！？ (which
+ * no space follows), or at a line break.
  * Whitespace around a sentence isn't part of it.
  */
 
-const BREAK_RE = /(?<=[.!?])\s+|\n+/g
+const BREAK_RE = /(?<=[.!?\u061F\u06D4\u0964\u0965])\s+|(?<=[\u3002\uFF01\uFF1F])\s*|\n+/g
 
 /** Each sentence's [start, end) as UTF-16 offsets. */
 export function sentenceRanges(text: string): { start: number; end: number }[] {

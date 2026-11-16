@@ -36,6 +36,7 @@
 //!
 //! Publishing is described in RELEASING.md.
 
+use crate::i18n::{t, t_with};
 use crate::storage;
 use crate::windows::{self, MAIN, UPDATE};
 use serde_json::{Value, json};
@@ -74,6 +75,9 @@ static FOLLOWING: AtomicBool = AtomicBool::new(false);
 /// Bumped when the user cancels; a check that started under an older
 /// generation finishes quietly.
 static GENERATION: AtomicU64 = AtomicU64::new(0);
+/// Install and Relaunch failed after the main window had gone, and the window
+/// is showing why. Closing it relaunches the version that's still installed.
+static RELAUNCH_ON_CLOSE: AtomicBool = AtomicBool::new(false);
 
 /// Clears `CHECKING` and `FOLLOWING` however a check ends.
 struct CheckGuard;
@@ -217,7 +221,10 @@ fn available_view(version: &str, current: &str, date: Option<String>, notes: &st
 /// The window closed, by its close button or after a choice. Mid-check or
 /// mid-download that means Cancel; on the prompt, Remind Me Later; on
 /// "Ready to Install", install on quit.
-pub fn on_window_destroyed(_app: &AppHandle) {
+pub fn on_window_destroyed(app: &AppHandle) {
+    if RELAUNCH_ON_CLOSE.swap(false, Ordering::SeqCst) {
+        app.restart();
+    }
     let mut view = VIEW.lock().unwrap();
     match view["state"].as_str() {
         Some("checking") => {
@@ -335,7 +342,7 @@ async fn run_check(app: &AppHandle, source: Source) {
             if source == Source::Preferences {
                 send_status(app, "error", None, Some(&e));
             }
-            report(app, error_view("Could not check for updates", &e));
+            report(app, error_view(&t("update.checkFailed"), &e));
             return;
         }
     };
@@ -388,10 +395,10 @@ fn present(app: &AppHandle, source: Source, view: Value) {
         let _ = app
             .notification()
             .builder()
-            .title("Magnolia update available")
-            .body(format!(
-                "Version {} is available.",
-                view["version"].as_str().unwrap_or_default()
+            .title(t("update.notificationTitle"))
+            .body(t_with(
+                "update.notificationBody",
+                &[("version", view["version"].as_str().unwrap_or_default())],
             ))
             .show();
     }
@@ -440,7 +447,7 @@ async fn download(app: &AppHandle) {
         }
         Err(e) => {
             log::error!("[auto-update] download failed: {e}");
-            show(app, error_view("Could not download the update", &e.to_string()));
+            show(app, error_view(&t("update.downloadFailed"), &e.to_string()));
         }
     }
 }
@@ -449,10 +456,34 @@ async fn download(app: &AppHandle) {
 
 /// "Ready to Install" closed without installing → it installs as the app quits.
 pub fn install_pending_on_quit(_app: &AppHandle) {
-    if let Some(d) = DOWNLOADED.lock().unwrap().take()
-        && let Err(e) = d.update.install(&d.bytes)
-    {
+    if let Err(e) = install_pending() {
         log::error!("[auto-update] install on quit failed: {e}");
+    }
+}
+
+/// Install and Relaunch, once the project is flushed. A deb or rpm install
+/// waits here for the password prompt. A failure (a wrong or cancelled password
+/// among them) goes in the update window rather than relaunching the old
+/// version as if it were the new one.
+pub fn install_pending_and_relaunch(app: &AppHandle) {
+    match install_pending() {
+        Ok(()) => app.restart(),
+        Err(e) => {
+            log::error!("[auto-update] install failed: {e}");
+            RELAUNCH_ON_CLOSE.store(true, Ordering::SeqCst);
+            let message = t_with(
+                "update.installFailedMessage",
+                &[("version", &current_version(app)), ("error", &e.to_string())],
+            );
+            show(app, error_view(&t("update.installFailed"), &message));
+        }
+    }
+}
+
+fn install_pending() -> Result<(), tauri_plugin_updater::Error> {
+    match DOWNLOADED.lock().unwrap().take() {
+        Some(d) => d.update.install(&d.bytes),
+        None => Ok(()),
     }
 }
 
@@ -499,7 +530,7 @@ async fn fake_check(app: &AppHandle, source: Source, mode: &str) {
             if source == Source::Preferences {
                 send_status(app, "error", None, Some(e));
             }
-            return report(app, error_view("Could not check for updates", e));
+            return report(app, error_view(&t("update.checkFailed"), e));
         }
         _ => {}
     }
