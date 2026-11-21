@@ -379,7 +379,9 @@ export interface Note {
 export type CodeCondition =
   | { type: 'code'; codeGuid: string; includeSubcodes?: boolean }
   | { type: 'any' }
-  | { type: 'text'; searchText: string; caseSensitive?: boolean; wholeWord?: boolean }
+  /** `sentences`: each result is the whole sentence the text occurs in,
+   *  not the occurrence itself. */
+  | { type: 'text'; searchText: string; caseSensitive?: boolean; wholeWord?: boolean; sentences?: boolean }
   | { type: 'and'; conditions: CodeCondition[] }
   | { type: 'or'; conditions: CodeCondition[] }
   | { type: 'xor'; conditions: CodeCondition[] }
@@ -788,6 +790,8 @@ export interface MagnoliaAPI {
   onIntercoderResultsClosed: (callback: () => void) => () => void
   // Query results window (pop-out)
   openQueryResultsWindow: (data: QueryResultsInitData) => void
+  /** Whether Query Results was popped out when the main window last closed. */
+  wasQueryResultsPoppedOut: () => Promise<boolean>
   updateQueryResultsWindow: (data: QueryResultsInitData) => void
   getQueryResultsData: () => Promise<QueryResultsInitData>
   onQueryResultsData: (callback: (data: QueryResultsInitData) => void) => () => void

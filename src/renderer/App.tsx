@@ -131,7 +131,8 @@ function describeCondition(cond: CodeCondition, findCode: (guid: string) => Code
     case 'code':
       return cond.includeSubcodes ? t('queryDesc.inclSubcodes', { name: codeName(cond.codeGuid) }) : codeName(cond.codeGuid)
     case 'text':
-      return cond.searchText ? `"${cond.searchText}"` : t('queryBuilder.kind.text')
+      if (!cond.searchText) return t('queryBuilder.kind.text')
+      return cond.sentences ? t('queryDesc.sentencesWith', { text: cond.searchText }) : `"${cond.searchText}"`
     case 'and':
       return cond.conditions.map((c) => describeCondition(c, findCode, d + 1)).join(' AND ')
     case 'or':
@@ -698,6 +699,18 @@ function App() {
     window.api.openQueryResultsWindow(initData)
     setQueryResultsPoppedOut(true)
   }, [codeStore.findCode, documentStore.sources, tagStore.tags])
+
+  // Pop Query Results out again if it was popped out when this window last
+  // closed — the window-state plugin puts it back where it was (e.g. on a
+  // second screen). Once per main window; it keeps its own state after.
+  const restoredPopOutRef = useRef(false)
+  useEffect(() => {
+    if (restoredPopOutRef.current || !projectStore.filePath) return
+    restoredPopOutRef.current = true
+    void window.api.wasQueryResultsPoppedOut().then((out) => {
+      if (out) popOutQueryResults()
+    })
+  }, [projectStore.filePath, popOutQueryResults])
 
   const collectProject = useCallback((): Project => {
     const ats = useAnalysisTabsStore.getState()

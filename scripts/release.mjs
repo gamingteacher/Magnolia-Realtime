@@ -2,8 +2,8 @@
 /**
  * Release helpers (see RELEASING.md).
  *
- *   node scripts/release.mjs release <mac|win|linux> [--no-upload]
- *     (npm run release:mac / release:win / release:linux.) Build this
+ *   node scripts/release.mjs release <win|linux> [--no-upload]
+ *     (npm run release:win / release:linux.) Build this
  *     platform's installers and update payloads, collect them, and upload
  *     them to the draft release for package.json's version (vX.Y.Z).
  *     Windows and Linux are built on GitHub: `release win` and `release
@@ -13,11 +13,14 @@
  *     distro doesn't run on older ones; issue #31.) With --no-upload they
  *     build locally instead, on that platform; the workflows use this. Loads
  *     the updater key from ~/.tauri/magnolia-updater.key when
- *     TAURI_SIGNING_PRIVATE_KEY isn't set; on macOS, needs APPLE_ID and
- *     APPLE_PASSWORD (or APPLE_APP_SPECIFIC_PASSWORD) for notarization,
- *     reading them from the "Magnolia notarization" keychain item if unset,
- *     signs with Magnolia's Developer ID unless APPLE_SIGNING_IDENTITY says
- *     otherwise, and builds both architectures.
+ *     TAURI_SIGNING_PRIVATE_KEY isn't set.
+ *
+ *   node scripts/release.mjs all
+ *     (npm run release:all.) Create the vX.Y.Z draft if there isn't one,
+ *     start the Windows and Linux workflows together (logging to
+ *     release/release-win.log and release-linux.log), then, once both
+ *     are uploaded, `finish` — if the draft has its
+ *     release notes by then; if not, it says to write them and run finish.
  *
  *   node scripts/release.mjs finish [notes-file]
  *     (npm run release:finish.) Download every asset of the draft release,
@@ -41,16 +44,13 @@
  *     "Testing an update before release").
  */
 import { createHash } from 'node:crypto'
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { execFileSync } from 'node:child_process'
+import { copyFileSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { execFileSync, spawn } from 'node:child_process'
 import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const REPO = 'gamingteacher/Magnolia-Realtime'
-/** Magnolia's Developer ID, used when APPLE_SIGNING_IDENTITY / APPLE_TEAM_ID aren't set. */
-const MAC_TEAM_ID = 'DTRLLXT8T7'
-const MAC_IDENTITY = `Developer ID Application: Cale Davis (${MAC_TEAM_ID})`
 const root = fileURLToPath(new URL('..', import.meta.url))
 const out = join(root, 'release')
 
@@ -199,23 +199,8 @@ function run(cmd, args, env = process.env) {
   execFileSync(cmd, args, { stdio: 'inherit', env, shell: isWin, cwd: root })
 }
 
-/** The keychain item holding the Apple ID (its account) and app-specific password. */
-const KEYCHAIN_SERVICE = 'Magnolia notarization'
-
-/** The Apple ID and password saved in the keychain, or null if there's none. */
-function keychainNotarization() {
-  const find = (args) => execFileSync('security', ['find-generic-password', '-s', KEYCHAIN_SERVICE, ...args], { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] })
-  try {
-    const account = find([]).match(/"acct"<blob>="([^"]*)"/)?.[1]
-    const password = find(['-w']).trim()
-    return account && password ? { account, password } : null
-  } catch {
-    return null
-  }
-}
-
 /** The environment for a signed release build, or an error saying what's missing. */
-function releaseEnv(platform) {
+function releaseEnv() {
   const env = { ...process.env }
   if (!env.TAURI_SIGNING_PRIVATE_KEY) {
     const keyFile = join(homedir(), '.tauri', 'magnolia-updater.key')
@@ -225,29 +210,6 @@ function releaseEnv(platform) {
     env.TAURI_SIGNING_PRIVATE_KEY = readFileSync(keyFile, 'utf-8')
   }
   env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD ??= ''
-  if (platform === 'mac') {
-    // The Developer ID certificate Magnolia is signed with (electron-builder
-    // found it in the keychain by itself; Tauri needs its name), and the
-    // Electron builds' name for the app-specific password.
-    env.APPLE_SIGNING_IDENTITY ||= MAC_IDENTITY
-    env.APPLE_TEAM_ID ||= MAC_TEAM_ID
-    env.APPLE_PASSWORD ||= env.APPLE_APP_SPECIFIC_PASSWORD
-    // Otherwise the Apple ID and password come from the login keychain, so
-    // the password needn't be in a file or the shell history.
-    if (!env.APPLE_ID || !env.APPLE_PASSWORD) {
-      const saved = keychainNotarization()
-      if (saved) {
-        env.APPLE_ID ||= saved.account
-        env.APPLE_PASSWORD ||= saved.password
-      }
-    }
-    // Unsigned Mac builds are blocked by Gatekeeper, and 1.x installs only
-    // update to a build signed with the same Developer ID, so don't go on.
-    const missing = ['APPLE_ID', 'APPLE_PASSWORD'].filter((v) => !env[v])
-    if (missing.length) {
-      throw new Error(`Save the Apple ID and app-specific password in the keychain as "${KEYCHAIN_SERVICE}", or set ${missing.join(' and ')}, first, so the build is notarized (see RELEASING.md).`)
-    }
-  }
   return env
 }
 
@@ -255,6 +217,18 @@ function releaseEnv(platform) {
 const WORKFLOWS = {
   win: { file: 'release-windows.yml', name: 'Windows' },
   linux: { file: 'release-linux.yml', name: 'Linux' }
+}
+
+/** This checkout's commit, after checking it's what GitHub's main holds
+ *  (`what` names what has to match, for the error). */
+function pushedHead(what) {
+  run('git', ['fetch', '--quiet', 'origin', 'main'])
+  const head = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf-8', cwd: root }).trim()
+  const remote = execFileSync('git', ['rev-parse', 'origin/main'], { encoding: 'utf-8', cwd: root }).trim()
+  if (head !== remote) {
+    throw new Error(`This checkout (${head.slice(0, 7)}) isn't what's on GitHub's main (${remote.slice(0, 7)}): push or pull first, so ${what} of the same commit.`)
+  }
+  return head
 }
 
 /**
@@ -272,12 +246,7 @@ function releaseOnGitHub(platform) {
     throw new Error(`There's no ${tag} release on GitHub yet: create the draft first (see RELEASING.md).`)
   }
   // The workflow builds what's on GitHub, so that has to be this commit.
-  run('git', ['fetch', '--quiet', 'origin', 'main'])
-  const head = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf-8', cwd: root }).trim()
-  const remote = execFileSync('git', ['rev-parse', 'origin/main'], { encoding: 'utf-8', cwd: root }).trim()
-  if (head !== remote) {
-    throw new Error(`This checkout (${head.slice(0, 7)}) isn't what's on GitHub's main (${remote.slice(0, 7)}): push or pull first, so the ${name} build is of the same commit.`)
-  }
+  const head = pushedHead(`the ${name} build is`)
   const started = Date.now() - 5000
   console.log(`Starting the Release (${name}) workflow for ${tag} (${head.slice(0, 7)})…`)
   gh(['workflow', 'run', file, '--ref', 'main'])
@@ -301,24 +270,18 @@ function releaseOnGitHub(platform) {
 
 /** Build, collect and (unless --no-upload) upload this platform's assets. */
 function release(platform, upload) {
+  if (!Object.hasOwn(WORKFLOWS, platform)) throw new Error(`Unsupported release platform "${platform}" (win, linux).`)
   if (WORKFLOWS[platform] && upload) return releaseOnGitHub(platform)
-  const host = { darwin: 'mac', win32: 'win', linux: 'linux' }[process.platform]
+  const host = { win32: 'win', linux: 'linux' }[process.platform]
   if (platform !== host) throw new Error(`Build ${platform} on a ${platform} machine (this one is ${host ?? process.platform}).`)
-  const env = releaseEnv(platform)
+  const env = releaseEnv()
   const tag = `v${version()}`
   console.log(`Building Magnolia ${version()} for ${platform}…`)
   collected = []
-  if (platform === 'mac') {
-    for (const target of ['mac-arm64', 'mac-x64']) {
-      run('npm', ['run', 'tauri', 'build', '--', '--target', PLATFORMS[target].triple], env)
-    }
-    for (const target of ['mac-arm64', 'mac-x64']) { console.log(`Collecting ${target}:`); collect(target) }
-  } else {
-    const bundles = platform === 'linux' && isPrerelease() ? ['--', '--bundles', 'appimage,deb'] : []
-    run('npm', ['run', 'tauri', 'build', ...bundles], env)
-    console.log(`Collecting ${platform}:`)
-    collect(platform)
-  }
+  const bundles = platform === 'linux' && isPrerelease() ? ['--', '--bundles', 'appimage,deb'] : []
+  run('npm', ['run', 'tauri', 'build', ...bundles], env)
+  console.log(`Collecting ${platform}:`)
+  collect(platform)
   if (!upload) {
     console.log(`\nDone. Upload with: gh release upload ${tag} ${collected.map((f) => `release/${f.split(/[\\/]/).pop()}`).join(' ')} --clobber`)
     return
@@ -326,6 +289,48 @@ function release(platform, upload) {
   console.log(`Uploading to the ${tag} release…`)
   run('gh', ['release', 'upload', tag, ...collected, '--clobber', '--repo', REPO])
   console.log(`\nDone: ${collected.length} files uploaded to ${tag}.`)
+}
+
+/** The draft release's description: its release notes. */
+function draftNotes(tag) {
+  return execFileSync('gh', ['release', 'view', tag, '--json', 'body', '--jq', '.body', '--repo', REPO], { encoding: 'utf-8', shell: isWin }).trim()
+}
+
+/** Release every platform at once (see the top of this file). */
+async function all() {
+  const tag = `v${version()}`
+  pushedHead('every platform is built')
+  // One draft, made before the builds start: made by each of them at
+  // once, the uploads could be split between them.
+  try {
+    execFileSync('gh', ['release', 'view', tag, '--json', 'tagName', '--repo', REPO], { stdio: 'ignore', shell: isWin })
+    console.log(`Using the ${tag} draft.`)
+  } catch {
+    console.log(`Creating the ${tag} draft…`)
+    run('gh', ['release', 'create', tag, '--draft', '--title', `Magnolia ${version()}`, '--notes', '', '--repo', REPO])
+  }
+  const logs = join(root, 'release')
+  mkdirSync(logs, { recursive: true })
+  const build = (platform) =>
+    new Promise((done) => {
+      const log = join(logs, `release-${platform}.log`)
+      const out = openSync(log, 'w')
+      const child = spawn(process.execPath, [fileURLToPath(import.meta.url), 'release', platform], { cwd: root, stdio: ['ignore', out, out] })
+      child.on('error', () => done(false))
+      child.on('exit', (code) => done(code === 0))
+    })
+  console.log(`Building Windows and Linux on GitHub (follow them in release/release-win.log and release/release-linux.log)…\n`)
+  const platforms = ['win', 'linux']
+  const ok = await Promise.all(platforms.map(build))
+  const failed = platforms.filter((_, i) => !ok[i])
+  if (failed.length) {
+    throw new Error(`\nNot finished: the ${failed.join(' and ')} release failed (see the output above, or release/release-<platform>.log). Fix it and run that platform's release again, then npm run release:finish.`)
+  }
+  console.log('\nBoth platforms are uploaded.')
+  if (!draftNotes(tag)) {
+    throw new Error(`Write the release notes in the ${tag} draft on GitHub, then run npm run release:finish.`)
+  }
+  finish()
 }
 
 /** Write the update manifests from the release's assets and upload them. */
@@ -340,7 +345,7 @@ function finish(notesFile) {
   // draft's own description on GitHub.
   let notes = notesFile ? resolve(notesFile) : undefined
   if (!notes) {
-    const body = execFileSync('gh', ['release', 'view', tag, '--json', 'body', '--jq', '.body', '--repo', REPO], { encoding: 'utf-8', shell: isWin }).trim()
+    const body = draftNotes(tag)
     if (!body) throw new Error(`The ${tag} draft has no release notes yet: write them on GitHub, or pass a notes file.`)
     notes = join(dir, 'release-notes.md')
     writeFileSync(notes, body + '\n')
@@ -358,12 +363,13 @@ const baseUrl = flag >= 0 ? argv.splice(flag, 2)[1] : undefined
 const noUpload = argv.includes('--no-upload')
 const [cmd, ...args] = argv.filter((a) => a !== '--no-upload')
 try {
-  if (cmd === 'release' && args[0]) release(args[0], !noUpload)
+  if (cmd === 'all') await all()
+  else if (cmd === 'release' && args[0]) release(args[0], !noUpload)
   else if (cmd === 'finish') finish(args[0])
   else if (cmd === 'collect' && args[0]) collect(args[0])
   else if (cmd === 'manifests' && args[0] && args[1]) manifests(args[0], resolve(args[1]), args[2], baseUrl)
   else {
-    console.error('usage: release.mjs release <mac|win|linux> [--no-upload]\n       release.mjs finish [notes-file]\n       release.mjs collect <mac-arm64|mac-x64|win|linux>\n       release.mjs manifests <version> <dir> [notes-file] [--base-url <url>]')
+    console.error('usage: release.mjs release <win|linux> [--no-upload]\n       release.mjs all\n       release.mjs finish [notes-file]\n       release.mjs collect <mac-arm64|mac-x64|win|linux>\n       release.mjs manifests <version> <dir> [notes-file] [--base-url <url>]')
     process.exit(1)
   }
 } catch (e) {

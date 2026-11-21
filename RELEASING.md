@@ -2,7 +2,7 @@
 
 This file explains two things:
 
-1. **Building** Magnolia for macOS, Windows, and Linux — how to set up each
+1. **Building** Magnolia for Windows and Linux — how to set up each
    machine and produce an installer.
 2. **Releasing** — turning those builds into a GitHub release that existing
    users auto-update to.
@@ -18,8 +18,8 @@ This file explains two things:
 ## 0. Common setup (every platform)
 
 You build for a platform **on that platform** (Tauri can't cross-compile
-installers). Releases need only the Mac: Windows and Linux are built on
-GitHub's machines. Each machine you build on needs:
+installers). Windows and Linux releases are built on GitHub's machines.
+Each machine you build on needs:
 
 - **Node.js** — a recent LTS (24+; the GitHub workflows use 24).
 - **Rust** — stable, via <https://rustup.rs>.
@@ -39,21 +39,22 @@ Everyday commands:
 | `npm test` | Renderer tests (Vitest) + backend tests (`cargo test`) |
 | `npm run typecheck` | TypeScript check of the renderer |
 | `npm run build` | Release build + installers for this platform, into `target/…/release/bundle/` (for testing; nothing is uploaded) |
-| `npm run release:mac` | macOS release: builds arm64 + x64, collects and uploads to the draft (see "Cutting a release") |
+| `npm run release:all` | Creates the draft if needed, runs the Windows and Linux workflows, then `release:finish` (see "Cutting a release") |
 | `npm run release:win` | Windows release, from any machine: runs the **Release (Windows)** workflow on GitHub, which builds, tests and uploads (see "Building for Windows") |
 | `npm run release:linux` | Linux release, from any machine: runs the **Release (Linux)** workflow on GitHub, which builds on Ubuntu 22.04, tests and uploads (see "Building for Linux") |
 | `npm run release:finish` | Writes and uploads the update manifests, once every platform is uploaded and the draft has its notes |
 
 The GitHub **Build** workflow (`.github/workflows/build.yml`) compiles and
-tests all three platforms on every push, so a Windows or Linux breakage shows
-up there even if you only develop on a Mac.
+tests Windows and Linux on every push. This fork does not build macOS releases.
+Run `npm ci` with Node.js 24 before committing dependency changes, and commit
+the updated `package-lock.json`; it must include optional packages for both
+platforms.
 
 ### The updater signing key
 
 Tauri only installs updates whose signature matches the public key built
 into the app (`plugins.updater.pubkey` in `tauri.conf.json`). The private
-key lives at `~/.tauri/magnolia-updater.key` on the Mac it was generated on
-(no password).
+key is stored outside the repository.
 
 - **Back it up somewhere safe** (a password manager). If it's lost, installed
   copies can never verify another update and users must reinstall by hand.
@@ -63,7 +64,7 @@ key lives at `~/.tauri/magnolia-updater.key` on the Mac it was generated on
 - **Add it to GitHub** as the repository secret `TAURI_SIGNING_PRIVATE_KEY`,
   for the Windows and Linux release workflows (once):
   ```sh
-  gh secret set TAURI_SIGNING_PRIVATE_KEY --repo caledavis/Magnolia < ~/.tauri/magnolia-updater.key
+  gh secret set TAURI_SIGNING_PRIVATE_KEY --repo gamingteacher/Magnolia-Realtime < ~/.tauri/magnolia-updater.key
   ```
 - Only a plain `npm run build` needs it exported, if you want that build to
   carry an update payload:
@@ -83,74 +84,7 @@ key lives at `~/.tauri/magnolia-updater.key` on the Mac it was generated on
 
 ---
 
-## 1. Building for macOS
-
-**Machine:** any Mac. Apple Silicon builds **both** arm64 and x64.
-
-**One-time setup:**
-
-- **Xcode Command Line Tools:** `xcode-select --install`.
-- **Both Rust targets:** `rustup target add aarch64-apple-darwin x86_64-apple-darwin`.
-- **Developer ID Application certificate** in your login keychain. Check with:
-  ```sh
-  security find-identity -v -p codesigning   # should list a valid "Developer ID Application"
-  ```
-  If it says `0 valid identities`, the Apple **"Developer ID Certification
-  Authority"** intermediate is probably missing — download it from
-  <https://www.apple.com/certificateauthority/> and import it.
-- **App-specific password** for your Apple ID (for notarization) — generate at
-  <https://account.apple.com> (Sign-In and Security → App-Specific Passwords).
-
-**Sign + notarize:** save your Apple ID and its app-specific password in the
-login keychain once (`-w` last makes `security` ask for the password, so it
-stays out of your shell history):
-```sh
-security add-generic-password -U -s "Magnolia notarization" -a "you@example.com" -w
-```
-`npm run release:mac` reads them from there. (After making a new app-specific
-password, run the same command again; `-U` replaces the old one.) Or export
-them instead, as for the Electron builds, which overrides the keychain:
-```sh
-export APPLE_ID="you@example.com"
-export APPLE_APP_SPECIFIC_PASSWORD="xxxx-xxxx-xxxx-xxxx"
-```
-Tauri then signs, notarizes and staples automatically. `npm run release:mac`
-fills in the rest: it signs with Magnolia's Developer ID, "Developer ID
-Application: Cale Davis (DTRLLXT8T7)", unless `APPLE_SIGNING_IDENTITY` and
-`APPLE_TEAM_ID` are set to another, and passes the password on as
-`APPLE_PASSWORD` (Tauri's name for it). It stops without the Apple ID and
-password, since an unsigned build couldn't update Magnolia 1.x. (electron-builder
-found the certificate in the keychain by itself; Tauri needs its name.)
-
-**Build a release:** `npm run release:mac` builds both architectures, collects
-and uploads them (see "Cutting a release").
-
-**Build by hand** (for testing): a plain `tauri build` isn't signed unless
-you also export `APPLE_SIGNING_IDENTITY`, `APPLE_TEAM_ID` and
-`APPLE_PASSWORD` yourself; unsigned is fine on your own Mac, but Gatekeeper
-blocks it on others.
-```sh
-npm run tauri build -- --target aarch64-apple-darwin
-npm run tauri build -- --target x86_64-apple-darwin
-```
-Each produces, under `target/<target>/release/bundle/`: the `.app`, a `.dmg`,
-and (with the signing key set) the update payload `Magnolia.app.tar.gz` +
-`.sig`.
-
-The `.dmg` step drives Finder with AppleScript to lay out the window, so run
-it from a terminal that has **Automation** permission for Finder (System
-Settings → Privacy & Security → Automation); otherwise it fails with
-"AppleEvent timed out".
-
-**Verify a finished build:**
-```sh
-spctl -a -vvv -t install target/aarch64-apple-darwin/release/bundle/macos/Magnolia.app   # want: source=Notarized Developer ID
-xcrun stapler validate target/aarch64-apple-darwin/release/bundle/macos/Magnolia.app     # want: The validate action worked!
-```
-
----
-
-## 2. Building for Windows
+## 1. Building for Windows
 
 **Build a release on GitHub; no Windows PC is needed.** The **Release
 (Windows)** workflow (`.github/workflows/release-windows.yml`) builds on
@@ -192,7 +126,7 @@ with the signing key set).
 
 ---
 
-## 3. Building for Linux
+## 2. Building for Linux
 
 **Build a release on GitHub, not on your own Linux machine.** An AppImage
 bundles most libraries from the machine it's built on, but takes glibc,
@@ -244,7 +178,7 @@ Produces under `target/release/bundle/`: `appimage/…AppImage`, `deb/…deb` an
 
 ---
 
-## 4. Cutting a release
+## 3. Cutting a release
 
 All platforms for one version land in a **single** `vX.Y.Z` GitHub release.
 You need the [`gh` CLI](https://cli.github.com) logged in to an account that
@@ -254,16 +188,31 @@ can write releases, on every build machine.
 ```sh
 npm version X.Y.Z --no-git-tag-version   # and version = "X.Y.Z" in src-tauri/Cargo.toml
 (cd src-tauri && cargo build) && git commit -am "Bump version to X.Y.Z" && git push
+
+# From any machine — draft, Windows and Linux, manifests:
+npm run release:all
+# Then publish the draft on GitHub.
+```
+
+`release:all` creates the `vX.Y.Z` draft if there isn't one, then runs the
+Windows and Linux workflows on GitHub (their
+progress goes to `release/release-win.log` and `release/release-linux.log`).
+When both are uploaded it runs `release:finish`, which needs the
+release notes: write them in the draft on GitHub while the builds run. If
+they aren't there yet, it stops and says so — write them, then run
+`npm run release:finish`. If a platform fails, the others still finish;
+run that platform's release again, then `release:finish`.
+
+**Or one platform at a time:**
+```sh
 gh release create vX.Y.Z --draft --title "Magnolia X.Y.Z" --notes ""
 
-# On the Mac (Apple ID and password from the "Magnolia notarization" keychain item):
-npm run release:mac
 # Windows and Linux, from any machine (they build on GitHub; see
 # "Building for Windows" and "Building for Linux"):
 npm run release:win
 npm run release:linux
 
-# Anywhere, once all three are uploaded and the notes are written on GitHub:
+# Anywhere, once both are uploaded and the notes are written on GitHub:
 npm run release:finish
 # Then publish the draft on GitHub.
 ```
@@ -286,10 +235,7 @@ The steps in detail:
    gh release create vX.Y.Z --draft --title "Magnolia X.Y.Z" --notes ""
    ```
 3. **Build and upload each platform** (all on the same commit, pushed to
-   `main`). From the Mac:
-   ```sh
-   npm run release:mac     # macOS: both arm64 and x64
-   ```
+   `main`).
    ```sh
    npm run release:win     # Windows, from any machine: builds on GitHub
    npm run release:linux   # Linux, from any machine: builds on GitHub
@@ -302,13 +248,7 @@ The steps in detail:
    `…/releases/latest/download/…` links keep working), and uploads them to
    the `vX.Y.Z` draft (the version in `package.json`). It loads the updater
    key from `~/.tauri/magnolia-updater.key` unless `TAURI_SIGNING_PRIVATE_KEY`
-   is set. On macOS, it reads your Apple ID and app-specific password from
-   the "Magnolia notarization" keychain item (see "Sign + notarize" above),
-   unless `APPLE_ID` and `APPLE_APP_SPECIFIC_PASSWORD` are exported.
-   `release:mac` signs with Magnolia's Developer ID (Cale Davis,
-   DTRLLXT8T7) unless `APPLE_SIGNING_IDENTITY` and `APPLE_TEAM_ID` say
-   otherwise, and stops without the Apple ID and password, since an
-   un-notarized build couldn't update Magnolia 1.x. Add `-- --no-upload` to
+   is set. Add `-- --no-upload` to
    build and collect without uploading.
 4. **Write the release notes** in the draft's description on GitHub. **These
    notes appear inside the app** — the update dialog renders them
@@ -326,14 +266,11 @@ The steps in detail:
    platform's signed update, so it can only be written once all are
    uploaded.
    - `latest.json` is what Tauri builds poll.
-   - `latest-mac.yml`, `latest.yml` and `latest-linux.yml` are for installs of
-     **Magnolia 1.x (Electron)**, whose updater only reads those — see
-     "Moving users off Electron" below. `latest-mac.yml` carries
-     `minimumSystemVersion: '22.0.0'` (Darwin 22 = macOS 13), so Macs too old
-     to run the build aren't offered it.
+   - `latest.yml` and `latest-linux.yml` are for installs of
+     **Magnolia 1.x (Electron)** — see "Moving users off Electron" below.
 
    The steps underneath, if you need them on their own:
-   `node scripts/release.mjs collect <mac-arm64|mac-x64|win|linux>` and
+   `node scripts/release.mjs collect <win|linux>` and
    `node scripts/release.mjs manifests X.Y.Z <assets-dir> notes.md`.
 6. **Publish** the draft. Until you do, updaters can't see it.
 
@@ -343,14 +280,11 @@ The steps in detail:
 
 | File | Platform | Purpose |
 |---|---|---|
-| `Magnolia-mac-arm64.dmg` / `-x64.dmg` | macOS | Drag-to-Applications installers |
-| `Magnolia-mac-arm64.app.tar.gz` / `-x64…` (+ `.sig`) | macOS | Tauri update payloads |
-| `Magnolia-mac-arm64.zip` / `-x64.zip` | macOS | Update payloads for Magnolia 1.x |
 | `Magnolia-win-x64.exe` (+ `.sig`) | Windows | Installer, and the update payload for both updaters |
 | `Magnolia-linux-x86_64.AppImage` (+ `.sig`) | Linux | Portable app, and the update payload for AppImages |
 | `Magnolia-linux-amd64.deb` / `Magnolia-linux-x86_64.rpm` (+ `.sig`) | Linux | Packages, and the update payloads for deb and rpm installs |
 | `latest.json` | all | Tauri update manifest |
-| `latest-mac.yml` / `latest.yml` / `latest-linux.yml` | all | Update manifests for Magnolia 1.x |
+| `latest.yml` / `latest-linux.yml` | Windows / Linux | Update manifests for Magnolia 1.x |
 
 ---
 
@@ -360,18 +294,6 @@ Magnolia 1.x used electron-updater. The `latest*.yml` manifests that
 `scripts/release.mjs manifests` writes let those installs update straight to
 the Tauri build:
 
-- **macOS:** Squirrel.Mac installs the zipped `.app` only if it is signed with
-  the **same Developer ID** as the installed 1.x app, so always release
-  signed builds. Preferences and recent projects carry over (same
-  `~/Library/Application Support/Magnolia` folder).
-  After installing, Squirrel.Mac can't relaunch the app: it looks for
-  `Squirrel.framework` inside the new bundle, which a Tauri app doesn't
-  have. Magnolia quits and stays closed until the user opens it again. 1.x
-  shows the GitHub release body in its update dialog, so the **first Tauri
-  release's notes must say so**, e.g.:
-  > **Updating from Magnolia 1.x on a Mac:** Magnolia will close to finish
-  > the update and won't reopen by itself. Open it again from your
-  > Applications folder; your projects and preferences are kept.
 - **Windows:** electron-updater runs the new installer silently. Tauri installs
   per-user into a different folder than Electron did, so the old copy's
   uninstaller entry stays in "Installed apps" until the user removes it;
@@ -381,7 +303,7 @@ the Tauri build:
   that, the app updates them itself: `latest.json` has `linux-x86_64-deb` and
   `linux-x86_64-rpm` entries, and the app asks for a password to install them.
 
-Keep publishing the `.yml` manifests and `.zip`s for a few releases, until
+Keep publishing the `.yml` manifests for a few releases, until
 1.x installs have died out. Once the Tauri build is installed, all updates go
 through `latest.json`.
 
@@ -406,74 +328,21 @@ Updaters only see a **published** release, so rehearse against a local
 server first. Nothing here touches GitHub. Example: the real release is
 2.0.0, and a throwaway 2.0.1 stands in for "the next version".
 
-**Build the two versions** (signing key and Apple variables exported):
-```sh
-npm version 2.0.0 --no-git-tag-version
-npm run tauri build -- --target aarch64-apple-darwin
-node scripts/release.mjs collect mac-arm64
-mkdir -p ~/update-test && mv release ~/update-test/2.0.0
-
-npm version 2.0.1 --no-git-tag-version     # throwaway; don't commit it
-npm run tauri build -- --target aarch64-apple-darwin
-node scripts/release.mjs collect mac-arm64
-mv release ~/update-test/2.0.1
-echo "Test release notes — **markdown** works." > ~/update-test/notes.md
-git checkout package.json package-lock.json src-tauri/Cargo.toml   # back to the real version
-```
-
-### Tauri → Tauri (`latest.json`)
-
-1. Install 2.0.0: open `~/update-test/2.0.0/Magnolia-mac-arm64.dmg` and drag
-   it to Applications.
-2. Write the 2.0.1 manifest with local download links, and serve it:
-   ```sh
-   node scripts/release.mjs manifests 2.0.1 ~/update-test/2.0.1 ~/update-test/notes.md --base-url http://localhost:8000/
-   python3 -m http.server 8000 -d ~/update-test/2.0.1
-   ```
-3. Launch 2.0.0 pointed at it (quit Magnolia first):
-   ```sh
-   open -n --env MAGNOLIA_UPDATE_ENDPOINT=http://localhost:8000/latest.json /Applications/Magnolia.app
-   ```
-   `MAGNOLIA_UPDATE_ENDPOINT` makes a release build check that manifest
-   instead of GitHub's. Signatures are still checked against the built-in
-   key.
-4. Check: the prompt appears with the notes; Remind Me Later; Skip This
-   Version (then Help → Check for Updates… still offers it); Install Update
-   → progress → Cancel; Install Update again → Install and Relaunch; the
-   relaunched app's About says 2.0.1. Reinstall 2.0.0 and also check
-   "close the window when Ready to Install, then quit" installs on quit.
-   The server log shows each request.
-
-### Electron 1.x → Tauri (`latest-mac.yml`)
-
-1. Get a 1.9.0 copy and point its updater at the local server. Editing
-   the bundle breaks its signature, so re-sign it with the **same Developer
-   ID** (Squirrel.Mac only installs an update whose signer matches):
-   ```sh
-   gh release download v1.9.0 -p 'Magnolia-*arm64*.zip' -D ~/update-test/1.9.0
-   rm -rf /Applications/Magnolia.app   # ditto merges into an existing bundle
-   ditto -x -k ~/update-test/1.9.0/*.zip /Applications
-   printf 'provider: generic\nurl: http://localhost:8000/\nupdaterCacheDirName: magnolia-updater\n' \
-     > /Applications/Magnolia.app/Contents/Resources/app-update.yml
-   codesign --force --deep --options runtime --preserve-metadata=entitlements \
-     --sign "Developer ID Application: Cale Davis (DTRLLXT8T7)" /Applications/Magnolia.app
-   ```
-2. Write the 2.0.0 manifests and serve them:
-   ```sh
-   node scripts/release.mjs manifests 2.0.0 ~/update-test/2.0.0 ~/update-test/notes.md --base-url http://localhost:8000/
-   python3 -m http.server 8000 -d ~/update-test/2.0.0
-   ```
-3. Open 1.9.0 and let it update. Check: the Tauri 2.0.0 launches
-   afterwards, preferences and recent projects are still there.
-
-Back up `~/Library/Application Support/Magnolia` before testing and restore
-it afterwards, since every run reads and writes it. Remove
-`/Applications/Magnolia.app` when done and install the real release.
-
 ### On Linux
 
 The two rehearsals below use the **AppImage**, the only Linux build that
-updates itself from 1.x. The steps above carry over with these changes.
+updates itself from 1.x. Build both versions with the signing key exported,
+collect them in separate directories under `~/update-test`, and write
+`~/update-test/notes.md`. For the newer version, write the manifest and
+serve its directory:
+
+```sh
+node scripts/release.mjs manifests 2.0.1 ~/update-test/2.0.1 ~/update-test/notes.md --base-url http://localhost:8000/
+python3 -m http.server 8000 -d ~/update-test/2.0.1
+```
+
+`MAGNOLIA_UPDATE_ENDPOINT` makes a release build check that manifest instead
+of GitHub's; signatures are still checked against the built-in key.
 
 **Tauri → Tauri, deb or rpm:** install the older package, put the newer
 package and its `.sig` with the other assets, write and serve the manifests as
@@ -513,7 +382,7 @@ printf 'provider: generic\nurl: http://localhost:8000/\nupdaterCacheDirName: mag
 cp Magnolia-linux-x86_64.AppImage ~/update-test/Magnolia-linux-x86_64.AppImage
 APPIMAGE=$HOME/update-test/Magnolia-linux-x86_64.AppImage squashfs-root/AppRun
 ```
-With the 2.0.0 manifests served, 1.9.0 downloads the update on its own
+With the newer manifests served, 1.9.0 downloads the update on its own
 and installs it when you quit or restart. Expect two things in its log:
 - A `RangeError … Received NaN` from the differential download. The Tauri
   AppImage has no embedded blockmap, so electron-updater falls back to a
@@ -531,7 +400,7 @@ before testing and restore it afterwards. The Tauri tests add
 
 ## Skipping a platform
 
-To ship, say, a macOS-only update, run just `npm run release:mac`, then
+To ship, say, a Windows-only update, run just `npm run release:win`, then
 `npm run release:finish`: platforms without assets in the release are simply
 left out of `latest.json`, so their installs stay on the previous version.
 The README's download link for a skipped platform keeps pointing at the

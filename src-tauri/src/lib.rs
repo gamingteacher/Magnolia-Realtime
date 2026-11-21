@@ -72,6 +72,13 @@ pub fn run() {
             }
         }))
     };
+    // Remember where windows sat — except under automation, whose
+    // screenshots need the same window every run.
+    let builder = if automation::active() {
+        builder
+    } else {
+        builder.plugin(windows::window_state_plugin())
+    };
     let app = builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -91,6 +98,7 @@ pub fn run() {
         })
         .on_menu_event(|app, event| menu::handle_event(app, event.id().as_ref()))
         .invoke_handler(tauri::generate_handler![
+            commands::open_external,
             commands::open_project,
             zotero::zotero_get,
             zotero::zotero_file_path,
@@ -125,6 +133,7 @@ pub fn run() {
             commands::open_acknowledgements,
             commands::open_child_window,
             commands::update_query_results_window,
+            commands::query_results_popped_out,
             commands::update_intercoder_results_window,
             commands::close_child_window,
             commands::update_memos_window,
@@ -172,6 +181,9 @@ pub fn run() {
             automation::automation_log,
             automation::automation_pdf,
             automation::automation_quit,
+            automation::automation_input,
+            automation::automation_window_frame,
+            automation::automation_set_position,
         ])
         .setup(|app| {
             storage::init(app.handle());

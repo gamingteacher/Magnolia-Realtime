@@ -499,6 +499,7 @@ const api: MagnoliaAPI = {
 
   // Query results window (pop-out)
   openQueryResultsWindow: (data) => void invoke('open_child_window', { kind: 'query-results', data }),
+  wasQueryResultsPoppedOut: () => invoke('query_results_popped_out'),
   updateQueryResultsWindow: (data) => void invoke('update_query_results_window', { data }),
   getQueryResultsData: () => invoke('get_window_data'),
   onQueryResultsData: (callback) => on('query-results-init-data', callback),
@@ -531,6 +532,28 @@ const api: MagnoliaAPI = {
 if (current.label !== MAIN) {
   window.close = () => { void current.close() }
 }
+
+// A web view makes no new window for window.open or a target="_blank"
+// link, so web links (the Help tab's Manual and Donate, Preferences'
+// Sponsor link…) did nothing. Hand them to the default browser instead.
+const isExternalUrl = (url: string): boolean => /^(https?:|mailto:)/i.test(url)
+const openExternal = (url: string): void => { void invoke('open_external', { url }) }
+const nativeWindowOpen = window.open.bind(window)
+window.open = ((url?: string | URL, target?: string, features?: string) => {
+  const href = url == null ? '' : String(url)
+  if (isExternalUrl(href)) {
+    openExternal(href)
+    return null
+  }
+  return nativeWindowOpen(url, target, features)
+}) as typeof window.open
+document.addEventListener('click', (e) => {
+  if (e.defaultPrevented || e.button !== 0) return
+  const a = (e.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null
+  if (!a || !isExternalUrl(a.href)) return
+  e.preventDefault()
+  openExternal(a.href)
+})
 
 // Stamp the host platform on <html> in every window (every entry loads
 // this file first), so CSS can branch on it: the main window's toolbar
